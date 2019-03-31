@@ -1,0 +1,2397 @@
+<!--
+  gbcs-parser.html - GBCS message parser
+
+  Copyright (C) 2019 Andre B. Oliveira
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see https://www.gnu.org/licenses/.
+-->
+<html>
+<head>
+<title>GBCS Message Parser</title>
+<style>
+body { background-color: #fff; color: #000; font-family: monospace; }
+h1 { color: #009ee2; }
+textarea { width: 100%; }
+table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+tr:nth-child(odd) { background-color: #f0f8ff; }
+th { border: 1px solid #009ee2; background-color: #009ee2; color: #fff; font-weight: bold; }
+td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>GBCS Message Parser</h1>
+<p><textarea id=textarea placeholder="Paste here the hex string of the GBCS message" autofocus></textarea>
+<p><button type=button onclick=parse()>Parse</button>
+<p><table id=table></table>
+<p>Source: <a href=https://github.com/andrebdo/gbcs-parser-js>https://github.com/andrebdo/gbcs-parser-js</a>
+<script>
+function parse() {
+  var textarea = document.getElementById("textarea");
+  var table = document.getElementById("table");
+  table.innerHTML = parseGbcsMessage(textarea.value);
+}
+function parseGbcsMessage(text) {
+  var output = "";
+  var x = parseHexString(text);
+  if (x.input[0] == 0xDD) {
+    if (x.input[1] == 0x00) {
+      parseGeneralCiphering(x);
+    } else {
+      parseGeneralBlockTransfer(x);
+    }
+  } else {
+    parseGeneralSigning(x);
+  }
+  return output;
+
+  function putSeparator(title) {
+    output += "<tr><th colspan=3>" + title;
+  }
+
+  function putBytes(name, bytes, notes) {
+    output += "<tr><td>" + name + "<td>";
+    var h = "0123456789ABCDEF";
+    var n = bytes.end - bytes.index;
+    for (var i = 0; i < n; i++) {
+      if (i > 0) {
+        output += " ";
+      }
+      var b = bytes.input[bytes.index++];
+      output += h.charAt((b >> 4) & 15) + h.charAt(b & 15);
+    }
+    output += "<td>"
+    if (notes) {
+      output += notes;
+    }
+  }
+
+  function parseHexString(text) {
+    var bytes = new Uint8Array(text.length / 2);
+    var length = 0;
+    for (var i = 0; i + 1 < text.length; i++) {
+      var c = text.charCodeAt(i);
+      if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103)) {
+        c = text.charCodeAt(i + 1);
+        if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103)) {
+          bytes[length++] = parseInt(text.substr(i++, 2), 16);
+        }
+      }
+    }
+    return { input: bytes, index: 0, end: length };
+  }
+
+  function getBytes(x, n) {
+    var y = { input: x.input, index: x.index, end: x.index + n };
+    x.index += n;
+    return y;
+  }
+
+  function parseGeneralCiphering(x) {
+    putSeparator("MAC Header");
+    putBytes("General Ciphering", getBytes(x, 7));
+    var len = parseEncodedLength(x, "Ciphered Service Length");
+    var y = getBytes(x, len);
+    putBytes("Security Header", getBytes(y, 5));
+    parseGeneralSigning(getBytes(y, len - 5 - 12));
+    putSeparator("MAC");
+    putBytes("MAC", getBytes(y, 12));
+  }
+
+  function parseGeneralBlockTransfer(x) {
+    putSeparator("Message Routing Header");
+    putBytes("General Ciphering", getBytes(x, 2));
+    parseCraFlag(x);
+    parseCounter("Originator Counter", x);
+    putBytes("Originator System Title", getBytes(x, 9));
+    putBytes("Recipient System Title", getBytes(x, 9));
+    putBytes("Date Time", getBytes(x, 1));
+    putBytes("Other Info Length", getBytes(x, 1));
+    parseMessageCode(x);
+    putBytes("Key Info", getBytes(x, 1));
+    parseEncodedLength(x, "Ciphered Service Length");
+    putBytes("Security Header", getBytes(x, 5));
+    putSeparator("GBT Header");
+    putBytes("General Block Transfer", getBytes(x, 1));
+    var blockControl = x.input[x.index];
+    var lastBlock = (blockControl >> 7) & 1;
+    var streaming = (blockControl >> 6) & 1;
+    var window = blockControl & 0x3f;
+    putBytes("Block Control", getBytes(x, 1), "Last Block: " + lastBlock + ", Streaming: " + streaming + ", Window: " + window);
+    var blockNumber = x.input[x.index] * 256 + x.input[x.index + 1];
+    putBytes("Block Number", getBytes(x, 2), blockNumber);
+    var blockNumberAck = x.input[x.index] * 256 + x.input[x.index + 1];
+    putBytes("Block Number Ack", getBytes(x, 2), blockNumberAck);
+    var blockDataLen = parseEncodedLength(x, "Block Data Length");
+    putBytes("Block Data", getBytes(x, blockDataLen));
+  }
+
+  function parseGeneralSigning(x) {
+    putSeparator("Grouping Header");
+    putBytes("General Signing", getBytes(x, 2));
+    var craFlag = parseCraFlag(x);
+    parseCounter("Originator Counter", x);
+    putBytes("Originator System Title", getBytes(x, 9));
+    putBytes("Recipient System Title", getBytes(x, 9));
+    var dateTimeLen = x.input[x.index];
+    putBytes("Date Time", getBytes(x, 1 + dateTimeLen));
+    var otherInfoLen = parseEncodedLength(x, "Other Information Length");
+    var otherInfo = getBytes(x, otherInfoLen);
+    var messageCode = parseMessageCode(otherInfo);
+    if (otherInfoLen >= 10) {
+      putBytes("Supplementary Remote Party ID", getBytes(otherInfo, 8));
+      if (otherInfoLen >= 18) {
+        parseCounter("Supplementary Remote Party Counter", otherInfo);
+        if (otherInfoLen == 26) {
+          parseCounter("Supplementary Originator Counter", otherInfo);
+        } else if (otherInfoLen > 26) {
+          putBytes("Supplementary Remote Party Key Agreement Certificate", otherInfo);
+        }
+      }
+    }
+    var contentLen = parseEncodedLength(x, "Content Length");
+    parsePayload(getBytes(x, contentLen), messageCode, craFlag);
+    putSeparator("Signature");
+    var signatureLen = parseEncodedLength(x, "Signature Length");
+    if (signatureLen > 0) {
+      putBytes("Signature", getBytes(x, signatureLen));
+    }
+  }
+
+  function parsePayload(x, messageCode, craFlag) {
+    putSeparator("Payload");
+    try {
+      if (messageCode == 0x0008) {  // CS02a
+        if (craFlag == 1) {
+          parseProvideSecurityCredentialDetailsCommand(x);
+        } else {
+          parseProvideSecurityCredentialDetailsResponse(x);
+        }
+      } else if (messageCode >= 0x0102 && messageCode <= 0x0109) {  // CS02b
+        if (craFlag == 1) {
+          parseUpdateSecurityCredentialsCommand(x);
+        } else {
+          parseUpdateSecurityCredentialsResponse(x);
+        }
+      } else if (messageCode == 0x00CB) {  // CS02b alert
+        parseUpdateSecurityCredentialsAlert(x);
+      } else if (messageCode == 0x000A) {  // CS02c
+        if (craFlag == 1) {
+          parseIssueSecurityCredentialsCommand(x);
+        } else {
+          parseIssueSecurityCredentialsResponse(x);
+        }
+      } else if (messageCode == 0x000B) {  // CS02d
+        if (craFlag == 1) {
+          parseUpdateDeviceCertificateCommand(x);
+        } else {
+          parseUpdateDeviceCertificateResponse(x);
+        }
+      } else if (messageCode == 0x000C) {  // CS02e
+        if (craFlag == 1) {
+          parseProvideDeviceCertificateCommand(x);
+        } else {
+          parseUpdateDeviceCertificateResponse(x);
+        }
+      } else if (messageCode == 0x000D || messageCode == 0x00AB || messageCode == 0x000E || messageCode == 0x00AF) {  // CS03A1 || CS03A2 || CS03B || CS03C
+        if (craFlag == 1) {
+          parseJoinDeviceCommand(x);
+        } else {
+          parseJoindDeviceResponse(x);
+        }
+      } else if (messageCode == 0x000F || messageCode == 0x0010) {  // CS04AC || CS04B
+        if (craFlag == 1) {
+          parseUnjoinDeviceCommand(x);
+        } else {
+          parseUnjoindDeviceResponse(x);
+        }
+      } else if (messageCode == 0x0012) {  // CS06
+        if (craFlag == 1) {
+          parseActivateFirmwareCommand(x);
+        } else {
+          parseActivateFirmwareResponse(x);
+        }
+      } else if (messageCode == 0x00CA) {  // CS06 alert
+        parseActivateFirmwareAlert(x);
+      } else if (messageCode == 0x0013) {  // CS07
+        if (craFlag == 1) {
+          parseReadDeviceJoinDetailsCommand(x);
+        } else {
+          parseReadDeviceJoinDetailsResponse(x);
+        }
+      } else if (messageCode == 0x007F) {  // GCS28
+        if (craFlag == 1) {
+          parseSetTimeCommand(x);
+        } else {
+          parseSetTimeResponse(x);
+        }
+      } else if (messageCode == 0x008C) {  // GCS59
+        if (craFlag == 1) {
+          parseGpfDeviceLogRestoreCommand(x);
+        } else {
+          parseGpfDeviceLogRestoreResponse(x);
+        }
+      } else if (messageCode == 0x00B2) {  // GCS62
+        parseGpfDeviceLogBackupAlert(x);
+      } else if (x.input[x.index] == 1 && x.input[x.index + 1] == 9) {
+        if (craFlag == 3) {
+          parseGbzAlertPayload(x);
+        } else {
+          parseGbzPayload(x);
+        }
+      } else if (x.input[x.index] == 0xD9) {
+        parseDlmsAccessRequest(x);
+      } else if (x.input[x.index] == 0xDA) {
+        parseDlmsAccessResponse(x);
+      } else if (x.input[x.index] == 0x0F) {
+        parseDlmsDataNotificationGbcsAlert(x);
+      } else {
+        putBytes("Payload", x);
+      }
+    } catch(error) {
+      putBytes("ERROR", x, error);
+    }
+  }
+
+  function parseEncodedLength(x, name) {
+    var value = x.input[x.index];
+    var bytes = 1;
+    if (value == 0x81) {
+      value = x.input[x.index + 1];
+      bytes = 2;
+    } else if (value == 0x82) {
+      value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      bytes = 3;
+    }
+    putBytes(name, getBytes(x, bytes), value);
+    return value;
+  }
+
+  function parseCraFlag(x) {
+    var craFlag = x.input[x.index];
+    putBytes("CRA Flag", getBytes(x, 1), { 1: "Command", 2: "Response", 3: "Alert" }[craFlag] || "INVALID");
+    return craFlag;
+  }
+
+  function parseCounter(name, x) {
+    var bytes = getBytes(x, 8);
+    putBytes(name, bytes, getDecimalString(bytes));
+  }
+
+  function getDecimalString(x) {
+    var value64 = [ 0, 0 ];
+    var fixedPoint = 1000000000000;
+    for (var i = x.index; i < x.end; i++) {
+      var lsb = value64[0] * 256 + x.input[i];
+      var msb = value64[1] * 256 + Math.floor(lsb / fixedPoint);
+      value64[0] = Math.floor(lsb % fixedPoint);
+      value64[1] = msb;
+    }
+    var decimalString = "";
+    do {
+      decimalString = String.fromCharCode(Math.floor(value64[0] % 10) + 0x30) + decimalString;
+      value64[0] = Math.floor(value64[0] / 10) + Math.floor(value64[1] % 10) * (fixedPoint / 10);
+      value64[1] = Math.floor(value64[1] / 10);
+    } while (value64[0] || value64[1]);
+    return decimalString;
+  }
+
+  function parseMessageCode(x) {
+    var usecases = {
+      0x0001: "CCS01 Add Device to CHF device log",
+      0x0002: "CCS02 Remove device from CHF device log",
+      0x0003: "CCS03 Restore CHF Device Log",
+      0x0007: "CS01a Apply Prepayment Top Up to an ESME",
+      0x0008: "CS02a Provide Security Credentials Details",
+      0x000A: "CS02c Issue Security Credentials",
+      0x000B: "CS02d Update Device Certificates on Device",
+      0x000C: "CS02e Provide Device Certificates from Device",
+      0x000D: "CS03A1 Method A Join (Meter)",
+      0x000E: "CS03B Method B Join",
+      0x000F: "CS04AC Method A or C Unjoin",
+      0x0010: "CS04B Method B Unjoin",
+      0x0012: "CS06 Activate Firmware",
+      0x0013: "CS07 Read Device Join Details",
+      0x0014: "CS10a Read ZigBee Device Event Log",
+      0x0015: "CS11 Clear ZigBee Device Event Log",
+      0x0018: "CS14 Device Addition To / Removal From HAN Whitelist Alerts",
+      0x0019: "ECS01a Set Tariff and Price on ESME",
+      0x001A: "ECS02 Set ESME Payment Mode to Credit",
+      0x001B: "ECS03 Set ESME Payment Mode to Prepayment",
+      0x001C: "ECS04a Adjust Meter Balance on the ESME",
+      0x001D: "ECS05 Reset Tariff Block Counter Matrix",
+      0x001E: "ECS07 Manage Debt on the ESME",
+      0x001F: "ECS08 Update Prepayment Configuration on ESME",
+      0x0020: "ECS09 Activate Emergency Credit Remotely on ESME",
+      0x0021: "ECS10 Send Message to ESME",
+      0x0022: "ECS12 Set Change of Tenancy date on ESME",
+      0x0023: "ECS14 Disable Privacy PIN Protection on ESME",
+      0x0024: "ECS15a Clear ESME Event Log",
+      0x0025: "ECS16 Write Supplier Contact Details on ESME",
+      0x0026: "ECS17a Read ESME Energy Registers (Export Energy)",
+      0x0027: "ECS17b Read ESME Energy Registers (Import Energy)",
+      0x0028: "ECS17c Read ESME Energy Registers (Power)",
+      0x0029: "ECS17d Read ESME Energy Register (TOU)",
+      0x002A: "ECS17e Read ESME Energy Register (TOU with Blocks)",
+      0x002B: "ECS18a Read Maximum Demand Registers (export)",
+      0x002C: "ECS18b Read Maximum Demand Registers (import)",
+      0x002D: "ECS19 Read ESME Prepayment Registers",
+      0x002E: "ECS20a Read ESME Billing Data Log (payment based debt payments)",
+      0x002F: "ECS20b Read ESME Billing Data Log (change of mode / tariff triggered exc export)",
+      0x0030: "ECS20c Read ESME Billing Data Log (billing calendar triggered exc export)",
+      0x0033: "ECS21a Read Electricity Daily Read Log (exc export)",
+      0x0034: "ECS21b Read Electricity (Prepayment) Daily Read Log",
+      0x0035: "ECS21c Read Electricity Daily Read Log (export only)",
+      0x0036: "ECS22a Read Electricity Half Hour Profile Data (export)",
+      0x0037: "ECS22b Read Electricity Half Hour Profile Data (active import)",
+      0x0038: "ECS22c Read Electricity Half Hour Profile Data (reactive import)",
+      0x0039: "ECS23 Read Voltage Operational Data",
+      0x003A: "ECS24 Read ESME Tariff Data",
+      0x003B: "ECS26a Read ESME Configuration Data Prepayment",
+      0x003C: "ECS26b Read ESME Configuration Voltage Data",
+      0x003D: "ECS26c Read ESME Configuration Data Device Information (randomisation)",
+      0x003E: "ECS26d Read ESME Configuration Data Device Information (Billing Calendar)",
+      0x003F: "ECS26e Read ESME Configuration Data Device Information (device identity exc MPAN)",
+      0x0040: "ECS26f Read ESME Configuration Data Device Information (instantaneous power thresholds)",
+      0x0042: "ECS27 Read ESME Load Limit Data",
+      0x0043: "ECS28a Set Load Limit Configurations - General Settings",
+      0x0044: "ECS28b Set Load Limit Configuration Counter Reset",
+      0x0045: "ECS29a Set Voltage Configurations on ESME",
+      0x0046: "ECS30 Set Billing Calendar on the ESME",
+      0x0047: "ECS34 Set Instantaneous Power Threshold Configuration",
+      0x0048: "ECS35a Read ESME Event Log",
+      0x0049: "ECS35b Read ESME Security Log",
+      0x004A: "ECS37 Set Maximum Demand Configurable Time Period",
+      0x004B: "ECS38 Update Randomised Offset Limit",
+      0x004C: "ECS39a Set MPAN Value on the ESME",
+      0x004D: "ECS39b Set Export MPAN Value on the ESME",
+      0x004E: "ECS40 Read MPAN Value on the ESME",
+      0x004F: "ECS42 Remotely Close the Load Switch on the ESME",
+      0x0050: "ECS43 Remotely Open the Load Switch on the ESME",
+      0x0051: "ECS44 Arm Load Switch in ESME",
+      0x0052: "ECS45 Read Status of Load Switch in the ESME",
+      0x0053: "ECS46a Set HC ALCS or ALCS Labels in ESME",
+      0x0054: "ECS46c Set HC ALCS and ALCS configuration in ESME (excluding labels)",
+      0x0055: "ECS47 Set or Reset HC ALCS or ALCS State",
+      0x0058: "ECS50 Send CIN to ESME",
+      0x0059: "ECS52 Read ESME/Comms Hub Firmware Version",
+      0x005A: "ECS57 Reset ESME Maximum Demand Registers",
+      0x005E: "ECS61c Read Boost Button Data from ESME",
+      0x005F: "ECS62 Set ALCS and Boost Button Association",
+      0x0060: "ECS66 Read ESME Daily Consumption Log",
+      0x0061: "ECS68 ESME Critical Sensitive Alert (Billing Data Log)",
+      0x0062: "ECS70 Set Clock on ESME",
+      0x0067: "ECS80 Supply Outage Restore Alert from ESME",
+      0x0068: "ECS81 Set Supply Tamper State on ESME",
+      0x0069: "ECS82 Read Meter Balance for ESME",
+      0x006B: "GCS01a Set Tariff and Price on GSME",
+      0x006C: "GCS02 Set GSME Payment Mode to Credit",
+      0x006D: "GCS03 Set GSME Payment Mode to Prepayment",
+      0x006E: "GCS04 Manage Debt on the GSME",
+      0x006F: "GCS05 Update Prepayment Configurations on GSME",
+      0x0070: "GCS06 Activate Emergency Credit Remotely on GSME",
+      0x0071: "GCS07 Send Message to GSME",
+      0x0072: "GCS09 Set Change of Tenancy date on GPF",
+      0x0073: "GCS11 Disable Privacy PIN Protection on GSME",
+      0x0074: "GCS13a Read GSME Consumption Register",
+      0x0075: "GCS14 Read GSME Prepayment Registers",
+      0x0076: "GCS15c Read GSME Billing Data Log (billing calendar triggered)",
+      0x0077: "GCS16a Read GSME Daily Read Log",
+      0x0078: "GCS17 Read GSME Profile Data Log",
+      0x0079: "GCS18 Read Gas Network Data Log",
+      0x007B: "GCS21a Read Gas Configuration Data Device Information",
+      0x007C: "GCS23 Set CV and Conversion Factor Value(s) on the GSME",
+      0x007D: "GCS24 Set Uncontrolled Gas Flow Rate and Supply Tamper State on the GSME",
+      0x007E: "GCS25 Set Billing Calendar on the GSME",
+      0x007F: "GCS28 Set Clock on GSME",
+      0x0080: "GCS31 Start Network Data Log on GSME",
+      0x0081: "GCS32 Remotely close the valve in the GSME",
+      0x0082: "GCS33 Read GSME Valve Status",
+      0x0083: "GCS36 Send CIN to GSME",
+      0x0084: "GCS38 Read GSME Firmware Version",
+      0x0085: "GCS39 Arm Valve in GSME",
+      0x0086: "GCS40a Adjust Prepayment Mode Meter Balance on the GSME",
+      0x0087: "GCS41 Set MPRN Value on the GSME",
+      0x0088: "GCS44 Write Contact Details on GSME",
+      0x0089: "GCS46 Read MPRN on the GSME",
+      0x008B: "GCS53 Push Billing Data Log as an Alert",
+      0x008C: "GCS59 Restore GPF Device Log",
+      0x008D: "GCS60 Read Meter Balance for GSME",
+      0x0090: "PCS02 Activate Emergency Credit on GSME from PPMID",
+      0x0092: "ECS26i Read Configuration Data Device Information (CHF identity)",
+      0x0093: "ECS35c Read CHF Event Log",
+      0x0094: "ECS35d Read CHF Security Log",
+      0x0096: "GCS16b Read GSME Daily Read log(s) (prepayment)",
+      0x0097: "CS01b Apply Prepayment Top Up to a GSME",
+      0x009B: "PCS01 Apply Prepayment Top Up to a GSME using PPMID",
+      0x009D: "GCS21d Read GSME Configuration Data Device Information (BillingCalendar)",
+      0x009E: "GCS21e Read GSME/GPF Configuration Data Device Information (device identity)",
+      0x009F: "GCS21f Read GSME Tariff Data",
+      0x00A0: "GCS61 Read gas Daily Consumption Log",
+      0x00A1: "CS10b Read ZigBee Device Security Log",
+      0x00A2: "ECS01b Set Price on ESME",
+      0x00A3: "GCS01b Set Price on GSME",
+      0x00AB: "CS03A2 Method A Join (non Meter)",
+      0x00AC: "ECS25a Set Alert Behaviours - ESME - Supplier",
+      0x00AD: "GCS20 Set Alert Behaviours - GSME",
+      0x00AE: "ECS29b Set Voltage Configurations on ESME - 3ph",
+      0x00AF: "CS03C Method C Join",
+      0x00B0: "ECS25b Set Alert Behaviours - ESME - Network Operator",
+      0x00B2: "GCS62 Backup GPF Device Log",
+      0x00B3: "ECS04b Reset Meter Balance on the ESME",
+      0x00B4: "GCS40b Reset Prepayment Mode Meter Balance on the GSME",
+      0x00B5: "GCS21b Read GSME Configuration Data Prepayment",
+      0x00B6: "GCS13c Read GSME Register (TOU)",
+      0x00B7: "ECS01c Set Tariff and Price on ESME secondary",
+      0x00B8: "GCS13b Read GSME Block Counters",
+      0x00B9: "ECS35e Read ESME Power Event Log",
+      0x00BA: "ECS35f Read ALCS Event Log",
+      0x00BB: "ECS61a Read HC ALCS and ALCS Data from ESME",
+      0x00BC: "ECS23b Read Voltage Operational Data - 3 Phase",
+      0x00BD: "ECS24b Read ESME Tariff Data - second element",
+      0x00BE: "ECS26j Read ESME Configuration Data Device Information (Payment Mode)",
+      0x00BF: "GCS21j Read GSME Configuration Data Device Information (Payment Mode)",
+      0x00C0: "GCS40c Adjust Credit Mode Meter Balance on the GSME",
+      0x00C1: "ECS15c Clear ALCS Event Log",
+      0x00C2: "GCS40d Reset Credit Mode Meter Balance on the GSME",
+      0x00C3: "GCS15b Read GSME Billing Data Log (change of mode / tariff triggered)",
+      0x00C4: "GCS15d Read GSME Billing Data Log (payment-based debt payments)",
+      0x00C5: "GCS15e Read GSME Billing Data Log (prepayment credits)",
+      0x00C6: "ECS26k Read ESME Configuration Voltage Data - 3 phase",
+      0x00C7: "ECS01d Set Price on ESME secondary",
+      0x00C9: "ECS20d Read ESME Billing Data Log (prepayment credits)",
+      0x00CA: "Futured Dated Firmware Activation Alert",
+      0x00CB: "Futured Dated Update Security Credentials Alert",
+      0x00CC: "Future Dated Execution Of Instruction Alert (DLMS COSEM)",
+      0x00CD: "Future Dated Execution Of Instruction Alert (GBZ)",
+      0x00CE: "Firmware Distribution Receipt Alert (ESME)",
+      0x00CF: "Firmware Distribution Receipt Alert (GSME)",
+      0x00D1: "ECS29c Set Voltage Configurations on ESME without counter reset",
+      0x00D2: "ECS29d Set Voltage Configurations on polyphase ESME without counter reset",
+      0x00D3: "ECS29e Reset RMS Voltage Counters on ESME",
+      0x00D4: "ECS29f Reset RMS Voltage Counters on polyphase ESME",
+      0x00D5: "Failure to Deliver Remote Party Message to ESME Alert",
+      0x00D7: "ECS30a Set Billing Calendar on the ESME - all periodicities",
+      0x00D8: "GCS25a Set Billing Calendar on the GSME - all periodicities",
+      0x00D9: "ECS26l Read ESME Configuration Data Device Information (Billing Calendar - all periodicities)",
+      0x00DA: "GCS21k Read GSME Configuration Data Device Information (BillingCalendar - all periodicities)",
+      0x00DB: "ECS48 Configure daily resetting of Tariff Block Counter Matrix",
+      0x00DE: "ECS08a Update Prepayment Configuration on ESME",
+      0x00EA: "ECS25a1 Set Event Behaviours - ESME to HAN Device - Supplier",
+      0x00EB: "ECS25a2 Set Event Behaviours - ESME audible alarm - Supplier",
+      0x00EC: "ECS25a3 Set Event Behaviours - ESME logging - Supplier",
+      0x00ED: "ECS25b3 Set Event Behaviours - ESME logging - Network Operator",
+      0x00EE: "ECS25r1 Read non-critical event and alert behaviours - ESME - Supplier",
+      0x00EF: "ECS25r2 Read non-critical event and alert behaviours - ESME - Network Operator",
+      0x00F0: "Meter Integrity Issue Warning Alert - ESME",
+      0x00F1: "GCS20r Read non-critical event and alert behaviours - GSME - Supplier",
+      0x00F2: "Meter Integrity Issue Warning Alert - GSME",
+      0x00F9: "ECS26m Read ESME Configuration Data Device Information (identity,  type and supply tamper state)",
+      0x00FA: "ECS26n Read CHF Configuration Data Device Information (CH identity and type)",
+      0x00FB: "GCS21m Read GSME Configuration Data Device Information (identity, type and supply tamper / depletion state)",
+      0x00FE: "CCS07 Read CHF Device Logs",
+      0x0102: "CS02b Update Security Credentials (supplierBySupplier)",
+      0x0103: "CS02b Update Security Credentials (networkOperatorByNetworkOperator)",
+      0x0104: "CS02b Update Security Credentials (accessControlBrokerByACB)",
+      0x0105: "CS02b Update Security Credentials (wanProviderByWanProvider)",
+      0x0106: "CS02b Update Security Credentials (transCoSByTransCoS)",
+      0x0107: "CS02b Update Security Credentials (supplierByTransCoS)",
+      0x0108: "CS02b Update Security Credentials (anyExceptAbnormalRootByRecovery)",
+      0x0109: "CS02b Update Security Credentials (anyByContingency)",
+      0x010A: "DBCH01 Read CHF Sub GHz Channel",
+      0x010B: "DBCH02 Read CHF Sub GHz Channel Log",
+      0x010C: "DBCH03 Read CHF Sub GHz Configuration",
+      0x010D: "DBCH04 Set CHF Sub GHz Configuration",
+      0x010E: "DBCH05 Request CHF Sub GHz Channel Scan",
+      0x010F: "CCS06 Read CHF device log and check HAN communications",
+      0x0110: "DBCH06 Limited Duty Cycle Action Taken Sub GHz Alert",
+      0x0111: "DBCH07 Sub GHz Sub GHz Channel Changed Sub GHz Alert",
+      0x0112: "DBCH08 Sub GHz Channel Scan Request Assessment Outcome Sub GHz Alert",
+      0x0113: "DBCH09 Sub GHz Configuration Changed Sub GHz Alert",
+      0x0114: "DBCH10 Message Discarded Due to Duty Cycle Management Sub GHz Alert",
+      0x0115: "DBCH11 No More Sub GHz Device Capacity Sub GHz Alert",
+      0x0116: "PECS01 Apply Prepayment Top Up to an ESME using PPMID",
+      0x0117: "PECS02 Activate Emergency Credit on ESME from PPMID",
+      0x0118: "PECS03 Request to Enable ESME Supply from PPMID",
+      0x0119: "HECS01 Request Control of a HAN Connected Auxiliary Load Control Switch from HCALCS",
+      0x1000: "Generic Critical Alert",
+      0x1001: "Generic Non Critical Alert",
+    };
+    var messageCode = x.input[x.index] * 256 + x.input[x.index + 1];
+    putBytes("Message Code", getBytes(x, 2), usecases[messageCode]);
+    return messageCode;
+  }
+
+  // ASN.1 DER Payloads
+
+  // CS02a Provide Security Credentials
+
+  function parseProvideSecurityCredentialDetailsCommand(x) {
+    var s = parseSequence(x, "Provide Security Credential Details Command");
+    parseTrustAnchorCellIdentifier(s, "Authorising Remote Party TA Cell Identifier");
+    parseSequenceOf(s, "Remote Party Roles Credentials Required", parseRemotePartyRole);
+  }
+
+  function parseProvideSecurityCredentialDetailsResponse(x) {
+    var sequenceOf = parseSequence(x, "Provide Security Credential Details Response");
+    while (sequenceOf.index < sequenceOf.end) {
+      var rpDetails = parseSequence(sequenceOf, "Remote Party Details");
+      parseRemotePartyRole(rpDetails);
+      parseStatusCode(rpDetails);
+      if (rpDetails.index < rpDetails.end) {
+        parseSeqNumber(rpDetails, "Current Seq Number");
+        var tacDetails = parseSequence(rpDetails, "Trust Anchor Cell Details");
+        while (tacDetails.index < tacDetails.end) {
+          var contents = parseSequence(tacDetails, "Trust Anchor Cell Contents");
+          parseKeyUsage(contents);
+          parseCellUsage(contents);
+          parseDerOctetString(contents, "Subject Unique ID");
+          parseDerOctetString(contents, "Subject Key Identifier");
+        }
+      }
+    }
+  }
+
+  // CS02b Update Security Credentials
+
+  function parseUpdateSecurityCredentialsCommand(x) {
+    var s = parseSequence(x, "Update Security Credentials Command");
+    parseAuthorisingRemotePartyControl(s);
+    parseSequenceOf(s, "Replacements", parseTrustAnchorReplacement);
+    parseSequenceOf(s, "Certification Path Certificates", parseCertificate);
+    if (isPresent(s, 0x18)) parseGeneralizedTime(s, "Execution Date Time");
+  }
+
+  function parseUpdateSecurityCredentialsResponse(x) {
+    var s = parseSequence(x, "Update Security Credentials Response");
+    parseNull(s, "Command Accepted");
+    if (isPresent(s, 0x30)) parseUpdateSecurityCredentialsExecutionOutcome(s);
+  }
+
+  function parseUpdateSecurityCredentialsAlert(x) {
+    var s = parseSequence(x, "Update Security Credentials Alert");
+    parseInteger(s, "Alert Code");
+    parseGeneralizedTime(s, "Execution Date Time");
+    parseUpdateSecurityCredentialsExecutionOutcome(s);
+  }
+
+  function parseUpdateSecurityCredentialsExecutionOutcome(x) {
+    var s = parseSequence(x, "Execution Outcome");
+    parseSeqNumber(s, "Authorising Remote Party Seq Number");
+    parseCredentialsReplacementMode(s);
+    parseSequenceOf(s, "Remote Party Seq Number Changes", parseRemotePartySeqNumberChange);
+    parseSequenceOf(s, "Replacement Outcomes", parseReplacementOutcome);
+  }
+
+  function parseReplacementOutcome(x) {
+    var s = parseSequence(x, "Replacement Outcome");
+    parseTrustAnchorCellIdentifier(s);
+    parseStatusCode(s);
+    parseDerOctetString(s, "Existing Subject Unique ID");
+    parseDerOctetString(s, "Existing Subject Key ID");
+    parseDerOctetString(s, "Replacing Subject Unique ID");
+    parseDerOctetString(s, "Replacing Subject Key ID");
+  }
+
+  // CS02c Issue Security Credentials
+
+  function parseIssueSecurityCredentialsCommand(x) {
+    var s = parseSequence(x, "Issue Security Credentials Command");
+    parseKeyUsage(s);
+  }
+
+  function parseIssueSecurityCredentialsResponse(x) {
+    if (isPresent(x, 0x30)) {
+      putBytes("Certification Request", x);
+    } else {
+      parseInteger(x, "Response Code", { 1:"Invalid Key Usage", 2:"Key Pair Generation Failed", 3:"CR Production Failed" });
+    }
+  }
+
+  // CS02d Update Device Certificate on Device
+
+  function parseUpdateDeviceCertificateCommand(x) {
+    parseCertificate(x);
+  }
+
+  function parseUpdateDeviceCertificateResponse(x) {
+    var responseCodes = {
+      0: "Success",
+      1: "Invalid Certificate",
+      2: "Wrong Device Identity",
+      3: "Invalid Key Usage",
+      4: "No Corresponding Key Pair Generated",
+      5: "Wrong Public Key",
+      6: "Certificate Storage Failed",
+      7: "Private Key Change Failed",
+    };
+    parseInteger(x, "Response Code", responseCodes);
+  }
+
+  // CS02e Provide Device Certificate from Device
+
+  function parseProvideDeviceCertificateCommand(x) {
+    var s = parseSequence(x, "Provide Device Certificate Command");
+    parseKeyUsage(s);
+  }
+
+  function parseUpdateDeviceCertificateResponse(x) {
+    if (isPresent(x, 0x30)) {
+      parseCertificate(x);
+    } else {
+      parseInteger(x, "Response Code", { 1:"Invalid Key Usage", 2:"No Certificate Held", 3:"Certificate Retrieval Failure" });
+    }
+  }
+
+  // CS03XY
+
+  function parseJoinDeviceCommand(x) {
+    var s = parseSequence(x, "Join Device Command");
+    parseInteger(s, "Join Method and Role", { 0:"Method A Initiator", 1:"Method A Responder", 2:"Method B", 3:"Method C" });
+    parseDerOctetString(s, "Entity Id");
+    parseDeviceType(s);
+    if (s.index < s.end) {
+      parseCertificate(s);
+    }
+  }
+
+  function parseJoindDeviceResponse(x) {
+    var responseCodes = {
+      0: "Success",
+      1: "Invalid Message Code for Join Method and Role",
+      2: "Invalid Join Method and Role",
+      3: "Incompatible with Existing Entry",
+      4: "Device Log Full",
+      5: "Write Failure",
+      6: "Key Agreement no Resources",
+      7: "Key Agreement Unknown Issuer",
+      8: "Key Agreement Unsupported Suite",
+      9: "Key Agreement Bad Message",
+      10: "Key Agreement Bad Key Confirm",
+      11: "Invalid or Missing Certificate",
+      12: "No Partner Link Key Received",
+      13: "No CBKE Response",
+    };
+    parseInteger(x, "Response Code", responseCodes);
+  }
+
+  // CS04XY
+
+  function parseUnjoinDeviceCommand(x) {
+    parseDerOctetString(x, "Entity Id");
+  }
+
+  function parseUnjoindDeviceResponse(x) {
+    parseInteger(x, "Response Code", { 0:"Succes", 1:"Not in Device Log", 2:"Other Failure" });
+  }
+
+  // CS06
+
+  function parseActivateFirmwareCommand(x) {
+    var s = parseSequence(x, "Activate Firmware Command");
+    parseDerOctetString(s, "Manufacturer Image Hash");
+    parseSeqNumber(s, "Originator Counter");
+    if (s.index < s.end) {
+      parseGeneralizedTime(s, "Execution Date Time");
+    }
+  }
+
+  function parseActivateFirmwareResponse(x) {
+    if (isPresent(x, 5)) {
+      parseNull(x, "Command Accepted");
+    } else {
+      parseActivateFirmwareExecutionOutcome(x);
+    }
+  }
+
+  function parseActivateFirmwareAlert(x) {
+    var s = parseSequence(x, "Activate Firmware Alert");
+    parseInteger(s, "Alert Code");
+    parseGeneralizedTime(s, "Execution Date Time");
+    parseSeqNumber(s, "Originator Counter");
+    parseActivateFirmwareExecutionOutcome(s);
+  }
+
+  function parseActivateFirmwareExecutionOutcome(x) {
+    var s = parseSequence(x, "Execution Outcome");
+    parseInteger(s, "Response Code", { 0:"Success", 1:"No Image Held", 2:"Hash Mismatch", 3:"Activation Failure" });
+    parseDerOctetString(s, "Firmware Version");
+  }
+
+  // CS07
+
+  function parseReadDeviceJoinDetailsCommand(x) {
+    parseNull(x, "Read Device Join Details Command");
+  }
+
+  function parseReadDeviceJoinDetailsResponse(x) {
+    var s = parseSequence(x, "Read Device Join Details Response");
+    parseInteger(s, "Response Code", { 0:"Success", 1:"Read Failure" });
+    if (s.index < s.end) {
+      parseSequenceOf(s, "Device Log Entries", parseDeviceLogEntry);
+    }
+  }
+
+  function parseDeviceLogEntry(x) {
+    var s = parseSequence(x, "Device Log Entry");
+    parseDerOctetString(s, "Device Id");
+    parseDeviceType(s);
+  }
+
+  // GCS28
+
+  function parseSetTimeCommand(x) {
+    var s = parseSequence(x, "Set Time Command");
+    parseGeneralizedTime(s, "Validity Interval Start");
+    parseGeneralizedTime(s, "Validity Interval End");
+  }
+
+  function parseSetTimeResponse(x) {
+    var s = parseSequence(x, "Set Time Response");
+    parseGeneralizedTime(s, "Device Time");
+    parseInteger(s, "Device Time Status", { 0:"Reliable", 1:"Invalid", 2:"Unreliable" });
+  }
+
+  // GCS59
+
+  function parseGpfDeviceLogRestoreCommand(x) {
+    var s = parseSequence(x, "GPF Device Log Restore Command");
+    parseSequenceOf(s, "Device Log Entries", parseDeviceLogEntry);
+  }
+
+  function parseGpfDeviceLogRestoreResponse(x) {
+    var s = parseSequence(x, "GPF Device Log Restore Response");
+    parseSequenceOf(s, "Restore Outcomes", parseGpfDeviceLogRestoreOutcome);
+  }
+
+  function parseGpfDeviceLogRestoreOutcome(x) {
+    var s = parseSequence(x, "Restore Outcome");
+    parseDeviceLogEntry(s);
+    var joinResponseCodes = {
+      0: "Success",
+      1: "Invalid Message Code for Join Method and Role",
+      2: "Invalid Join Method and Role",
+      3: "Incompatible with Existing Entry",
+      4: "Device Log Full",
+      5: "Write Failure",
+      6: "Key Agreement No Resources",
+      7: "Key Agreement Unknown Issuer",
+      8: "Key Agreement Unsupported Suite",
+      9: "Key Agreement Bad Message",
+      10: "Key Agreement Bad Key Confirm",
+      11: "Invalid or Missing Certificate",
+    };
+    parseInteger(s, "Join Response Code", joinResponseCodes);
+  }
+
+  // GCS62
+
+  function parseGpfDeviceLogBackupAlert(x) {
+    var s = parseSequence(x, "GPF Device Log Backup Alert");
+    parseInteger(s, "Alert Code");
+    parseGeneralizedTime(s, "Backup Date Time");
+    parseSequenceOf(s, "Device Log Entries", parseDeviceLogEntry);
+  }
+
+  // GBCS ASN.1 definitions used by multiple use cases
+
+  function parseDeviceType(x) {
+    parseInteger(x, "Device Type", { 0:"GSME", 1:"ESME", 2:"CHF", 3:"GPF", 4:"HCALS", 5:"PPMID", 6:"Type 2" });
+  }
+
+  function parseTrustAnchorCellIdentifier(x, name) {
+    var s = parseSequence(x, name);
+    parseRemotePartyRole(s);
+    parseKeyUsage(s);
+    parseCellUsage(s);
+  }
+
+  function parseRemotePartyRole(x) {
+    var values = {
+      0: "Root",
+      1: "Recovery",
+      2: "Supplier",
+      3: "Network Operator",
+      4: "Access Control Broker",
+      5: "Transitional Change of Supplier",
+      6: "WAN Provider",
+      7: "Issuing Authority", 
+      127: "Other"
+    };
+    parseInteger(x, "Remote Party Role", values);
+  }
+
+  function parseKeyUsage(x) {
+    var bits = {
+      0: "Digital Signature",
+      4: "Key Agreement",
+      5: "Key Cert Sign",
+      6: "CRL Sign"
+    }
+    var length = x.input[x.index + 1];
+    var bitstring = x.input[x.index + 3];
+    var notes = "";
+    for (var i = 0; i < 8; i++) {
+      if (bitstring & (0x80 >> i)) {
+        if (bits[i]) {
+          if (notes)
+            notes += " ";
+          notes += bits[i];
+        }
+      }
+    }
+    putBytes("Key Usage", getBytes(x, 2 + length), notes);
+  }
+
+  // CellUsage ::= INTEGER { management (0), prePaymentTopUp (1) } DEFAULT management
+  function parseCellUsage(x) {
+    if (x.index + 2 < x.end && x.input[x.index] == 2 && x.input[x.index + 1] == 1 && x.input[x.index + 2] == 1) {
+      putBytes("Cell Usage", getBytes(x, 3), "Prepayment Top Up");
+    } else {
+      putBytes("Cell Usage", { index: 0, end: 0 }, "Management (DEFAULT)");
+    }
+  }
+
+  function parseSeqNumber(x, name) {
+    var length = x.input[x.index + 1];
+    var bytes = getBytes(x, 2 + length);
+    var value = { input: bytes.input, index: bytes.index + 2, end: bytes.end };
+    putBytes(name, bytes, getDecimalString(value));
+  }
+
+  function parseCredentialsReplacementMode(x) {
+    var values = {
+      2: "Supplier by Supplier",
+      3: "Network Operator by Network Operator",
+      4: "ACB by ACB",
+      5: "WAN Provider by WAN Provider",
+      6: "TransCoS by TransCoS",
+      7: "Supplier by TransCoS",
+      8: "Any Except Abnormal Root by Recovery",
+      9: "Any by Contingency"
+    };
+    parseInteger(x, "Credentials Replacement Mode", values);
+  }  
+
+  function parseAuthorisingRemotePartyControl(x) {
+    var s = parseSequence(x, "Authorising Remote Party Control");
+    parseCredentialsReplacementMode(s);
+    if (isPresent(s, 0x80)) parseDerOctetString(s, "Plaintext Symmetric Key");
+    if (isPresent(s, 0x81)) parseInteger(s, "Apply Time Based CPV Checks", { 0: "Apply", 1: "Disapply" });
+    if (isPresent(s, 0xA2)) parseTrustAnchorCellIdentifier(s, "Authorising Remote Party TA Cell Identifier");
+    parseSeqNumber(s, "Authorising Remote Party Seq Number");
+    if (isPresent(s, 0x84)) parseSeqNumber(s, "New Remote Party Floor Seq Number");
+    if (isPresent(s, 0xA5)) parseSequenceOf(s, "New Remote Party Specialist Floor Seq Number", parseSpecialistSeqNumber);
+    if (isPresent(s, 0xA6)) parseSequenceOf(s, "Other Remote Party Seq Number Changes", parseRemotePartySeqNumberChange);
+  }
+
+  function parseSpecialistSeqNumber(x) {
+    var s = parseSequence(x, "Specialist Seq Number");
+    parseInteger(s, "Seq Number Usage", { 0: "Prepayment Top Up" });
+    parseSeqNumber(s, "Seq Number");
+  }
+
+  function parseRemotePartySeqNumberChange(x) {
+    var s = parseSequence(x, "Remote Party Seq Number Change");
+    parseRemotePartyRole(s);
+    parseSeqNumber(s, "Floor Seq Number");
+    if (isPresent(s, 0x30)) parseSequenceOf(s, "Specialist Floor Seq Number", parseSpecialistSeqNumber);
+  }
+
+  function parseTrustAnchorReplacement(x) {
+    var s = parseSequence(x, "Trust Anchor Replacement");
+    parseCertificate(s);
+    parseTrustAnchorCellIdentifier(s, "Target Trust Anchor Cell");
+  }
+
+  // StatusCode ::= ENUMERATED { success (0), ... }
+  // Used in the CS02a and CS02b responses
+  function parseStatusCode(x) {
+    var values = {
+      0: "Success",
+      5: "Bad Certificate",
+      10: "No Trust Anchor",
+      17: "Insufficient Memory",
+      25: "Trust Anchor Not Found",
+      30: "Resources Busy",
+      127: "Other"
+    };
+    parseEnumerated(x, "Status Code", values);
+  }
+
+  function parseCertificate(x) {
+    var length = x.input[x.index + 1];
+    var header = 2;
+    if (length == 0x81) {
+      length = x.input[x.index + 2];
+      header = 3;
+    } else if (length == 0x82) {
+      length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      header = 4;
+    }
+    putBytes("Certificate", getBytes(x, header + length));
+  }
+
+  // ASN.1 Types
+
+  function parseSequence(x, name) {
+    var length = x.input[x.index + 1];
+    var bytes = 2;
+    if (length == 0x81) {
+      length = x.input[x.index + 2];
+      bytes = 3;
+    } else if (length == 0x82) {
+      length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      bytes = 4;
+    }
+    putBytes(name, getBytes(x, bytes));
+    return getBytes(x, length);
+  }
+
+  function parseSequenceOf(x, name, parse) {
+    var s = parseSequence(x, name);
+    while (s.index < s.end) {
+      parse(s);
+    }
+  }
+
+  function parseInteger(x, name, values) {
+    var value = 0;
+    var length = x.input[x.index + 1];
+    for (var i = 0; i < length; i++)
+      value = value * 256 + x.input[x.index + 2 + i];
+    putBytes(name, getBytes(x, 2 + length), values && values[value] || value);
+  }
+
+  function parseEnumerated(x, name, values) {
+    parseInteger(x, name, values);
+  }
+
+  function parseDerOctetString(x, name) {
+    var length = x.input[x.index + 1];
+    var bytes = 2;
+    if (length == 0x81) {
+      length = x.input[x.index + 2];
+      bytes = 3;
+    } else if (length == 0x82) {
+      length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      bytes = 4;
+    }
+    putBytes(name, getBytes(x, bytes + length));
+  }
+
+  function parseGeneralizedTime(x, name) {
+    var length = x.input[x.index + 1];
+    var time = "";
+    for (var i = 0; i < length; i++) {
+      var c = x.input[x.index + 2 + i];
+      if (i == 4 || i == 6)
+        time += "-";
+      else if (i == 8 || i == 14)
+        time += " ";
+      else if (i == 10 || i == 12)
+        time += ":";
+      time += String.fromCharCode(c);
+    }
+    putBytes(name, getBytes(x, 2 + length), time);
+  }
+
+  function parseNull(x, name) {
+    putBytes(name, getBytes(x, 2));
+  }
+
+  function isPresent(x, tag) {
+    return x.index < x.end && x.input[x.index] == tag;
+  }
+
+  // DLMS Payloads
+
+  function parseDlmsAccessRequest(x) {
+    putBytes("DLMS Access Request", getBytes(x, 6));
+    parseDlmsSequenceOf(x, "List of Access Request Specifications", parseDlmsAccessRequestSpecification);
+    parseDlmsSequenceOf(x, "List of Data", parseDlmsData);
+  }
+
+  function parseDlmsAccessResponse(x) {
+    putBytes("DLMS Access Response", getBytes(x, 7));
+    parseDlmsSequenceOf(x, "List of Access Response Data", parseDlmsData);
+    parseDlmsSequenceOf(x, "List of Access Response Specification", parseDlmsAccessResponseSpecification);
+  }
+
+  function parseDlmsDataNotificationGbcsAlert(x) {
+    putBytes("DLMS Data Notification", getBytes(x, 8));
+    parseDlmsLongUnsigned(x, "Alert Code");
+    parseDlmsOctetString(x, "Time Stamp");
+    while (x.index < x.end) {
+      parseDlmsData(x);
+    }
+  }
+
+  function parseDlmsAccessRequestSpecification(x) {
+    var choice = x.input[x.index];
+    if (choice == 1) {
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get");
+      parseDlmsCosemAttributeDescriptor(x);
+    } else if (choice == 2) {
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Set");
+      parseDlmsCosemAttributeDescriptor(x);
+    } else if (choice == 3) {
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Action");
+      parseDlmsCosemMethodDescriptor(x);
+    } else if (choice == 4) {
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get with Selection");
+      parseDlmsCosemAttributeDescriptor(x);
+      parseDlmsSelectiveAccessDescriptor(x);
+    } else {
+      throw "TODO: Access-Request-Specification CHOICE " + choice;
+    }
+  }
+
+  function parseDlmsAccessResponseSpecification(x) {
+    var choice = x.input[x.index];
+    if (choice == 1) {
+      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Get");
+      parseDlmsDataAccessResult(x);
+    } else if (choice == 2) {
+      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Set");
+      parseDlmsDataAccessResult(x);
+    } else if (choice == 3) {
+      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Action");
+      parseDlmsActionResult(x);
+    } else {
+      throw "TODO: Access-Response-Specification CHOICE " + choice;
+    }
+  }
+
+  function parseDlmsSequenceOf(x, name, parse) {
+    var n = x.input[x.index];
+    putBytes(name, getBytes(x, 1));
+    for (var i = 0; i < n; i++) {
+      parse(x);
+    }
+  }
+
+  function parseDlmsData(x, indent) {
+    if (indent == undefined) {
+      indent = "";
+    }
+    var choice = x.input[x.index];
+    if (choice == 0) {
+      putBytes(indent + "Null", getBytes(x, 1));
+    } else if (choice == 1) {
+      var n = x.input[x.index + 1];
+      putBytes(indent + "Array", getBytes(x, 2));
+      for (var i = 0; i < n; i++) {
+        parseDlmsData(x, indent + " ");
+      }
+    } else if (choice == 2) {
+      var n = x.input[x.index + 1];
+      putBytes(indent + "Structure", getBytes(x, 2));
+      for (var i = 0; i < n; i++) {
+        parseDlmsData(x, indent + " ");
+      }
+    } else if (choice == 3) {
+      putBytes(indent + "Boolean", getBytes(x, 2));
+    } else if (choice == 4) {
+      parseDlmsBitString(x, indent + "Bit String");
+    } else if (choice == 5) {
+      var value = x.input[x.index + 1] * 0x1000000 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
+      if (value > 0x7fffffff) {
+        value -= 0x100000000;
+      }
+      putBytes(indent + "Double Long", getBytes(x, 5), value);
+    } else if (choice == 6) {
+      var value = x.input[x.index + 1] * 0x1000000 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
+      putBytes(indent + "Double Long Unsigned", getBytes(x, 5), value);
+    } else if (choice == 9) {
+      parseDlmsOctetString(x, indent + "Octet String");
+    } else if (choice == 10) {
+      parseDlmsOctetString(x, indent + "Visible String");
+    } else if (choice == 15) {
+      var value = x.input[x.index + 1];
+      if (value > 0x7f) {
+        value -= 0x100;
+      }
+      putBytes(indent + "Integer", getBytes(x, 2), value);
+    } else if (choice == 16) {
+      var value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      if (value > 0x7fff) {
+        value -= 0x10000;
+      }
+      putBytes(indent + "Long", getBytes(x, 3), value);
+    } else if (choice == 17) {
+      var value = x.input[x.index + 1];
+      putBytes(indent + "Unsigned", getBytes(x, 2), value);
+    } else if (choice == 18) {
+      parseDlmsLongUnsigned(x, indent + "Long Unsigned");
+    } else if (choice == 19) {
+      parseDlmsCompactArray(x, indent + "Compact Array", indent);
+    } else if (choice == 22) {
+      putBytes(indent + "Enum", getBytes(x, 2));
+    } else {
+      throw "TODO: DLMS Data CHOICE " + choice;
+    }
+  }
+
+  function parseDlmsBitString(x, name) {
+    var bitlen = x.input[x.index + 1];
+    var bytelen = 2;
+    if (bitlen == 0x81) {
+      bitlen = x.input[x.index + 2];
+      bytelen += 1;
+    } else if (bitlen == 0x82) {
+      bitlen = x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      bytelen += 2;
+    }
+    bytelen += Math.floor((bitlen + 7) / 8);
+    putBytes(name, getBytes(x, bytelen));
+  }
+
+  function parseDlmsOctetString(x, name) {
+    var len = x.input[x.index + 1];
+    if (len == 0x81) {
+      len = 1 + x.input[x.index + 2];
+    } else if (len == 0x82) {
+      len = 2 + x.input[x.index + 2] * 256 + x.input[x.index + 3];
+    }
+    putBytes(name, getBytes(x, 2 + len));
+  }
+
+  function parseDlmsLongUnsigned(x, name) {
+    var value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+    putBytes(name, getBytes(x, 3), value);
+  }
+
+  function parseDlmsCompactArray(x, name, indent) {
+    if (indent == undefined) {
+      indent = "";
+    }
+    putBytes("Compact Array", getBytes(x, 1));
+    var typeDescriptionLen = parseDlmsTypeDescription(x, x.index);
+    putBytes(indent + " Type Description", getBytes(x, typeDescriptionLen));
+    var arrayContentsLen = x.input[x.index];
+    if (arrayContentsLen == 0x81) {
+      arrayContentsLen = 2 + x.input[x.index + 1];
+    } else if (arrayContentsLen == 0x82) {
+      arrayContentsLen = 3 + x.input[x.index + 1] * 256 + x.input[x.index + 2];
+    } else {
+      arrayContentsLen += 1;
+    }
+    putBytes(indent + " Contents", getBytes(x, arrayContentsLen));
+  }
+
+  function parseDlmsTypeDescription(x, index) {
+    var typeDescriptionLength = 1;
+    var choice = x.input[index];
+    if (choice == 1) {  // array
+      var numberOfElements = x.input[index + 1] * 256 + x.input[x.index + 2];
+      typeDescriptionLength += 2;
+      typeDescriptionLength += numberOfElements * parseDlmsTypeDescription(x, index + typeDescriptionLen);
+    } else if (choice == 2) {  // structure
+      var n = x.input[x.index + 1];
+      typeDescriptionLength += 1;
+      for (var i = 0; i < n; i++) {
+        typeDescriptionLength += parseDlmsTypeDescription(x, index + typeDescriptionLength);
+      }
+    }
+    return typeDescriptionLength;
+  }
+
+  function parseDlmsCosemAttributeDescriptor(x) {
+    var cosemClass = parseDlmsCosemClassId(x);
+    parseDlmsCosemInstanceId(x, cosemClass);
+    parseDlmsCosemAttributeId(x, cosemClass);
+  }
+
+  function parseDlmsCosemMethodDescriptor(x) {
+    var cosemClass = parseDlmsCosemClassId(x);
+    parseDlmsCosemInstanceId(x, cosemClass);
+    parseDlmsCosemMethodId(x, cosemClass);
+  }
+
+  function parseDlmsCosemClassId(x) {
+    // The attributes arrays start with attribute 2 (attribute 1 is always "logical_name").
+    // The methods arrays start with method 1.
+    var classes = {
+      0x0001: {
+        name: "Data",
+        attributes: [ "Value" ],
+        methods: [],
+        instances: {
+          0x00005E2C0301: "Disable Privacy PIN Protection",
+          0x00005E2C0302: "Restrict Data Date Time",
+          0x00005E2C0A00: "Sub GHz Configuration Settin​gs",
+          0x00005E2C0A01: "CHF Sub GHz Channel Scan",
+          0x00005E2C0A02: "Operating Sub GHz Channel",
+          0x00005E2C2214: "Power Import Collection",
+          0x0002600D01FF: "Supplier Message",
+        },
+      },
+      0x0003: {
+        name: "Register",
+        attributes: [ "Value", "Scaler Unit" ],
+        methods: [],
+        instances: {
+          0x0100020800FF: "Active Export Register",
+          0x0100040800FF: "Reactive Export Register",
+        },
+      },
+      0x0007: {
+        name: "Profile Generic",
+        attributes: [],
+        methods: [ "Reset" ],
+        instances: {
+          0x0000636200FF: "Event Log (inc GPF)",
+          0x0011636202FF: "Auxiliary Load Control Switc​h Event Log",
+        },
+      },
+      0x0009: {
+        name: "Script Table",
+        attributes: [],
+        methods: [ "Execute" ],
+        instances: { 0x00000A0064FF: "Tariff Block​ ​Counter Matrix TOU​" },
+      },
+      0x000A: {
+        name: "Schedule",
+        attributes: [ "Entries" ],
+        methods: [],
+        instances: { 0x00010C0001FF: "Non-Disablement Calendar" },
+      },
+      0x000B: {
+        name: "Special Days Table",
+        attributes: [ "Entries" ],
+        methods: [],
+        instances: {
+          0x00010B0000FF: "Tariff Switching Table​ Special Days",
+          0x00010B0001FF: "Tariff Switching Table​ Secondary Element Special Days",
+          0x00010B0002FF: "Non-Disablement Calendar​ Special Days",
+        },
+      },
+      0x0014: {
+        name: "Activity Calendar",
+        attributes: [
+          "Calendar Name Active",
+          "Season Profile Active",
+          "Week Profile Table Active",
+          "Day Profile Table Active",
+          "Calendar Name Passive",
+          "Season Profile Passive",
+          "Week Profile Table Passive",
+          "Day Profile Table Passive",
+          "Activate Passive Calendar Time",
+        ],
+        methods: [],
+        instances: {
+          0x00000D0000FF: "Tariff Switching Table",
+          0x00000D0001FF: "Tariff Switching Table​ Secondary Element",
+        },
+      },
+      0x0015: {
+        name: "Register Monitor",
+        attributes: [ "Thresholds" ],
+        methods: [],
+        instances: {
+          0x000010010BFF: "Tariff Threshold Matrix Bloc​ks ​TOU1",
+          0x000010010CFF: "​​Tariff Threshold Matrix Bloc​ks ​TOU2",
+          0x000010010DFF: "​​Tariff Threshold Matrix Bloc​ks ​TOU3",
+          0x000010010EFF: "​​Tariff Threshold Matrix Bloc​ks ​TOU4",
+          0x000010010FFF: "​​Tariff Threshold Matrix Bloc​ks ​TOU5",
+          0x0000100110FF: "​​Tariff Threshold Matrix Bloc​ks ​TOU6",
+          0x0000100111FF: "​​Tariff Threshold Matrix Bloc​ks ​TOU7",
+          0x0000100112FF: "​​Tariff Threshold Matrix Bloc​ks ​TOU8",
+        },
+      },
+      0x001E: {
+        name: "Data Protection",
+        attributes: [],
+        methods: [ "Get Protected Attributes" ],
+        instances: {
+          0x00002B0208FF: "Import Register Collection",
+          0x00002B0209FF: "Tariff TOU Register Collecti​on",
+          0x00002B020AFF: "Tariff Block TOU Register Col​lection",
+        },
+      },
+      0x0068: {
+        name: "ZigBee Network Control",
+        attributes: [
+          "Enable Disable Joining",
+          "Join Timeout",
+          "Active Devices",
+        ],
+        methods: [
+          "Register Device",
+          "Unregister Device",
+          "Unregister All Devices",
+          "Backup PAN",
+          "Restore PAN",
+        ],
+        instances: { 0x00001E0300FF: "Device Log (CHF)" },
+      },
+      0x006F: {
+        name: "Account",
+        attributes: [
+          "Account Mode and Status",
+          "Current Credit in Use",
+          "Current Credit Status",
+          "Available Credit",
+          "Amount to Clear",
+          "Clearance Threshold",
+          "Aggregated Debt",
+          "Credit Reference List",
+          "Charge Reference List",
+          "Credit Charge Configuration",
+          "Token Gateway Configuration",
+          "Account Activation Time",
+        ],
+        methods: [],
+        instances: { 0x0001130000FF: "SuspendDebtDisabled / SuspendDebtEmergency / Payment Mode" },
+      },
+      0x0070: {
+        name: "Credit",
+        attributes: [],
+        methods: [
+          "Update Amount",
+          "Set Amount to Value",
+          "Invoke Credit",
+        ],
+        instances: {
+          0x0000130A00FF: "Meter Balance",
+          0x0000130A01FF: "Emergency Credit Balance",
+          0x0000130A02FF: "Accumulated Debt Register",
+        },
+      },
+      0x0071: {
+        name: "Charge",
+        attributes: [
+          "Total Amount Paid",
+          "Charge Type",
+          "Priority",
+          "Unit Charge Active",
+          "Unit Charge Passive",
+          "Unit Charge Activation Time",
+          "Period",
+          "Charge Configuration",
+          "Last Collection Time",
+          "Last Collection Amount",
+          "Total Amount Remaining",
+          "Proportion",
+        ],
+        methods: [
+          "Update Unit Charge",
+          "Activate Passive Unit Charge",
+          "Collect",
+          "Update Total Amount Remaining",
+        ],
+        instances: {
+          0x0000131400FF: "Tariff Block Price Matrix TOU",
+          0x0000131401FF: "Debt Recovery Rates 1",
+          0x0000131402FF: "Debt Recovery Rates 2",
+          0x0000131403FF: "Debt Recovery per Payment​",
+          0x0000131404FF: "Standing Charge",
+          0x0000131405FF: "Secondary Tariff TOU Price Ma​trix",
+        },
+      },
+      0x0073: {
+        name: "Token Gateway",
+        attributes: [],
+        methods: [ "Enter" ],
+        instances: { 0x0000132800FF: "Prepayment Credit" },
+      },
+      0x2328: {
+        name: "GBCS Extended Data",
+        attributes: [
+          "Value Active",
+          "Scaler Unit Active",
+          "Value Passive",
+          "Scaler Unit Passive",
+          "Activate Passive Value Time",
+        ],
+        methods: [],
+        instances: {
+          0x00003F0101FF: "Tariff Threshold Matrix",
+          0x00005E2C0200: "Currency Unit",
+          0x00005E2C020A: "Prepayment Credit Max Credit Threshold",
+          0x00005E2C0214: "Prepayment Credit​ Max Meter Balance",
+          0x00005E2C8003: "Emergency Credit Threshold",
+          0x00005E2C8009: "Low Credit Threshold​",
+          0x00005E2C800C: "Debt Recovery Rate Cap​ Amount",
+          0x00005E2C8002: "Emergency Credit Limit",
+          0x00005E2C800D: "Debt Recovery Rate Cap​ Period",
+          0x00005E2C8016: "Disablement Threshold Meter Balance",
+          0x00005E2C801C: "Non-Disablement Calendar",
+          0x00005E2C801D: "Tariff Switching Table​ Special Days",
+          0x00005E2C801E: "Tariff Switching Table​ Secondary Element Special Days",
+          0x00005E2C801F: "Non-Disablement Calendar Special Days",
+          0x0000600D00FF: "Contact Details​ Supplier Telephone Numbe​r",
+          0x0000600D01FF: "Contact Details​ Supplier Name",
+        },
+      },
+    };
+    var id = x.input[x.index] * 256 + x.input[x.index + 1];
+    var cosemClass = classes[id] || { name:"", attributes:[], methods:[], instances:{} };
+    putBytes("Class Id", getBytes(x, 2), cosemClass.name);
+    return cosemClass;
+  }
+
+  function parseDlmsCosemInstanceId(x, cosemClass) {
+    var id = x.input[x.index] * 0x10000000000
+           + x.input[x.index + 1] * 0x100000000
+           + x.input[x.index + 2] * 0x1000000
+           + x.input[x.index + 3] * 0x10000
+           + x.input[x.index + 4] * 0x100
+           + x.input[x.index + 5];
+    var name = cosemClass.instances[id] || "";
+    putBytes("Instance Id", getBytes(x, 6), name);
+  }
+
+  function parseDlmsCosemAttributeId(x, cosemClass) {
+    var id = x.input[x.index];
+    var name = cosemClass.attributes[id - 2] || "";
+    putBytes("Attribute Id", getBytes(x, 1), name);
+  }
+
+  function parseDlmsCosemMethodId(x, cosemClass) {
+    var id = x.input[x.index];
+    var name = cosemClass.methods[id - 1] || "";
+    putBytes("Method Id", getBytes(x, 1), name);
+  }
+
+  function parseDlmsSelectiveAccessDescriptor(x) {
+    putBytes("Access Selector", getBytes(x, 1));
+    parseDlmsData(x);
+  }
+
+  function parseDlmsDataAccessResult(x) {
+    var values = {
+      0: "Success",
+      1: "Hardware Fault",
+      2: "Temporary Failure",
+      3: "Read Write Denied",
+      4: "Object Undefined",
+      9: "Object Class Inconsistent",
+      11: "Objext Unavailable",
+      12: "Type Unmatched",
+      13: "Scope of Access Violated",
+      14: "Data Block Unavailable",
+      15: "Long Get Aborted",
+      16: "No Long Get in Progress",
+      17: "Long Set Aborted",
+      18: "No Long Set in Progress",
+      19: "Data Block Number Invalid",
+      250: "Other Reason",
+    };
+    var value = x.input[x.index];
+    putBytes("Data Access Result", getBytes(x, 1), values[value] || "");
+  }
+
+  function parseDlmsActionResult(x) {
+    var values = {
+      0: "Success",
+      1: "Hardware Fault",
+      2: "Temporary Failure",
+      3: "Read Write Denied",
+      4: "Object Undefined",
+      9: "Object Class Inconsistent",
+      11: "Object Unavailable",
+      12: "Type Unmatched",
+      13: "Scope of Access Violated",
+      14: "Data Block Unavailable",
+      15: "Long Action Aborted",
+      16: "No Long Action in Progress",
+      250: "Other Reason",
+    };
+    var value = x.input[x.index];
+    putBytes("Action Result", getBytes(x, 1), values[value] || "");
+  }
+
+  // GBZ Payloads
+
+  function parseGbzPayload(x){
+    putBytes("Profile ID", getBytes(x, 2));
+    var numberOfGbzComponents = x.input[x.index];
+    putBytes("Number of GBZ components", getBytes(x, 1), numberOfGbzComponents);
+    for (var i = 1; i <= numberOfGbzComponents; i++) {
+      putSeparator("GBZ Component " + i);
+      var controlField = x.input[x.index];
+      putBytes("Control Field", getBytes(x, 1));
+      var cluster = parseClusterId(x);
+      // Extended Header GBZ Command Length
+      var extendedLen = x.input[x.index] * 256 + x.input[x.index + 1];
+      putBytes("Length", getBytes(x, 2), extendedLen);
+      var y = getBytes(x, extendedLen);
+      try {
+        if (controlField & 0x02) {  // encrypted content
+          putBytes("Additional Header", getBytes(y, 2));
+        } else if (controlField & 0x10) {
+          putBytes("From Date Time", getBytes(y, 4));
+        }
+        // ZCL Header
+        var frameControl = y.input[y.index];
+        putBytes("Frame Control", getBytes(y, 1));
+        putBytes("Sequence Number", getBytes(y, 1));
+        var command = parseCommandId(y, frameControl, cluster);
+        if (controlField & 0x02) {  // encrypted payload
+          var len = y.input[y.index] * 256 + y.input[y.index + 1];
+          putBytes("Ciphered Information Length", getBytes(y, 2), len);
+          putBytes("Security Header", getBytes(y, 5));
+          putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
+          putBytes("AE MAC", getBytes(y, 12));
+        } else {  // plaintext payload
+          if (command && command.parse) {
+            command.parse(y, cluster, frameControl);
+          } else {
+            putBytes("ZCL Payload", y);
+          }
+        }
+      } catch(error) {
+        putBytes("ERROR", y, error);
+      }
+    }
+  }
+
+  function parseGbzAlertPayload(x){
+    putBytes("Profile ID", getBytes(x, 2));
+    putBytes("Number of GBZ components", getBytes(x, 1));
+    putBytes("Alert Code", getBytes(x, 2));
+    putBytes("Timestamp", getBytes(x, 4));
+    if (x.index < x.end) {
+      putBytes("GBZ Use Case Specific Components", x);
+    }
+  }
+
+  function parseClusterId(x) {
+    var clusters = {
+      0x0700: {
+        name: "Price",
+        attributes: {
+          0x0302: "Conversion Factor",
+          0x0303: "Conversion Factor Trailing Digit",
+          0x0304: "Calorific Value",
+          0x0305: "Calorific Value Unit",
+          0x0306: "Calorific Value Trailing Digit",
+          0x0616: "Currency",
+          0x0617: "Price Trailing Digits",
+        },
+        commands: {},
+        responses: {
+          4: [ "Publish Tariff Information", parseZsePublishTariffInformation ],
+          5: [ "Publish Price Matrix", parseZsePublishPriceMatrix ],
+          6: [ "Publish Block Thresholds", parseZsePublishBlockThresholds ],
+        },
+      },
+      0x0702: {
+        name: "Metering",
+        attributes: {
+          0x0000: "Current Summation Delivered",
+          0x0100: "Current Tier 1 Summation Delivered",
+          0x0102: "Current Tier 2 Summation Delivered",
+          0x0104: "Current Tier 3 Summation Delivered",
+          0x0106: "Current Tier 4 Summation Delivered",
+          0x0300: "Unit of Measure",
+          0x0301: "Multiplier",
+          0x0302: "Divisor",
+          0x0307: "Site ID",
+          0x0700: "Current no Tier Block 1 Summation Delivered",
+          0x0701: "Current no Tier Block 2 Summation Delivered",
+          0x0702: "Current no Tier Block 3 Summation Delivered",
+          0x0703: "Current no Tier Block 4 Summation Delivered",
+          0x0B10: "Uncontrolled Flow Threshold",
+          0x0B11: "Uncontrolled Flow Threshold Unit of Measure",
+          0x0B12: "Uncontrolled Flow Multiplier",
+          0x0B13: "Uncontrolled Flow Divisor",
+          0x0B14: "Flow Stabilisation Period",
+          0x0B15: "Flow Measurement Period",
+        },
+        commands: {
+          6: [ "Get Snapshot", parseZseGetSnapshot ],
+          8: [ "Get Sampled Data", parseZseGetSampledData ],
+        },
+        responses: {
+          6: [ "Publish Snapshot", parseZsePublishSnapshot ],
+          7: [ "Get Sampled Data Response", parseZseGetSampledDataResponse ],
+        },
+      },
+      0x0703: {
+        name: "Messaging",
+        attributes: {},
+        commands: {},
+        responses: {
+          0: [ "Display Message", paseZseDisplayMessage ],
+        },
+      },
+      0x0705: {
+        name: "Prepayment",
+        attributes: {
+          0x0000: "Payment Control Configuration",
+          0x0001: "Credit Remaining",
+          0x0002: "Emergency Credit Remaining",
+          0x0005: "Accumulated Debt",
+          0x0006: "Overall Debt Cap",
+          0x0010: "Emergency Credit Limit",
+          0x0011: "Emergency Credit Threshold",
+          0x0021: "Max Credit Limit",
+          0x0022: "Max Credit Per Top Up",
+          0x0031: "Low Credit Warning Level",
+          0x0040: "Cut Off Value",
+          0x0211: "Debt Amount 1 (Time-Based Debt 1)",
+          0x0216: "Debt Recovery Frequency 1",
+          0x0217: "Debt Recovery Amount 1",
+          0x0221: "Debt Amount 2 (Time-Based Debt 2)",
+          0x0226: "Debt Recovery Frequency 2",
+          0x0227: "Debt Recovery Amount 2",
+          0x0231: "Debt Amount 3 (Payment-Based Debt)",
+          0x0239: "Debt Recovery Top Up Percentage 3",
+        },
+        commands: {
+          0: [ "Select Available Emergency Credit", parseZseSelectAvailableEmergencyCredit ],
+          2: [ "Change Debt", parseZseChangeDebt ],
+          3: [ "Emergency Credit Setup", parseZseEmergencyCreditSetup ],
+          4: [ "Consumer Top Up", parseZseConsumerTopUp ],
+          5: [ "Credit Adjustment", parseZseCreditAdjustment ],
+          6: [ "Change Payment Mode", parseZseChangePaymentMode ],
+          7: [ "Get Prepay Snapshot", parseZseGetPrepaySnapshot ],
+          8: [ "Get Top Up Log", parseZseGetTopUpLog ],
+          9: [ "Set Low Credit Warning Level", parseZseSetLowCreditWarningLevel ],
+          10: [ "Get Debt Repayment Log", parseZseGetDebtRepaymentLog ],
+          11: [ "Set Maximum Credit Limit", parseZseSetMaximumCreditLimit ],
+          12: [ "Set Overall Debt Cap", parseZseSetOverallDebtCap ],
+        },
+        responses: {
+          1: [ "Publish Prepay Snapshot" ],  // encrypted payload
+          2: [ "Change Payment Mode Response", parseZseChangePaymentModeResponse ],
+          3: [ "Consumer Top Up Response", parseZseConsumerTopUpResponse ],
+          5: [ "Publish Top Up Log", parseZsePublishTopUpLog ],
+          6: [ "Publish Debt Log", parseZsePublishDebtLog ],
+        },
+      },
+      0x0707: {
+        name: "Calendar",
+        attributes: {},
+        commands: {
+          1: [ "Get Day Profiles", parseZseGetDayProfiles ],
+          2: [ "Get Week Profiles", parseZseGetWeekProfiles ],
+          3: [ "Get Seasons", parseZseGetSeasons ],
+          4: [ "Get Special Days", parseZseGetSpecialDays ],
+        },
+        responses: {
+          0: [ "Publish Calendar", parseZsePublishCalendar ],
+          1: [ "Publish Day Profile", parseZsePublishDayProfile ],
+          2: [ "Publish Week Profile", parseZsePublishWeekProfile ],
+          3: [ "Publish Seasons", parseZsePublishSeasons ],
+          4: [ "Publish Special Days", parseZsePublishSpecialDays ],
+        },
+      },
+      0x0708: {
+        name: "Device Management",
+        attributes: {},
+        commands: {
+          4: [ "Report Event Configuration", parseZseReportEventConfiguration ],
+        },
+        responses: {
+          0: [ "Publish Change of Tenancy", parseZsePublishChangeOfTenancy ],
+          2: [ "Request New Password Response", parseZseRequestNewPasswordResponse ],
+          3: [ "Update Site Id", parseZseUpdateSiteId ],
+          4: [ "Set Event Configuration", parseZseSetEventConfiguration ],
+          5: [ "Get Event Configuration", parseZseGetEventConfiguration ],
+        },
+      },
+      0x0709: {
+        name: "Events",
+        attributes: {},
+        commands: {
+          0: [ "Get Event Log", parseZseGetEventLog ],
+          1: [ "Clear Event Log Request", parseZseClearEventLogRequest ],
+        },
+        responses: {
+          1: [ "Publish Event Log", parseZsePublishEventLog ],
+          2: [ "Clear Event Log Response", parseZseClearEventLogResponse ],
+        },
+      },
+    };
+    var clusterId = x.input[x.index] * 256 + x.input[x.index + 1];
+    var cluster = clusters[clusterId] ||  { name: "", attributes: {}, commands: {}, responses: {} };
+    putBytes("Cluster Id", getBytes(x, 2), cluster.name);
+    return cluster;
+  }
+
+  function parseCommandId(x, frameControl, cluster) {
+    var command;
+    var commandId = x.input[x.index];
+    var frameType = frameControl & 3;
+    if (frameType == 0) {
+      var profileCommands = {
+        0: [ "Read Attributes", parseZclReadAttributes ],
+        1: [ "Read Attributes Response", parseZclReadAttributesResponse ],
+        11: [ "Default Response", parseZclDefaultResponse ],
+      };
+      command = profileCommands[commandId];
+    } else if (frameType == 1) {
+      var direction = frameControl & 8;
+      if (direction == 0) {
+        command = cluster.commands[commandId];
+      } else {
+        command = cluster.responses[commandId];
+      }
+    }
+    if (command) {
+      command = { name: command[0], parse: command[1] };
+    }
+    var name = (command && command.name) || "";
+    putBytes("Command Id", getBytes(x, 1), name);
+    return command;
+  }
+
+  // ZCL commands
+
+  function parseZclReadAttributes(x, cluster) {
+    while (x.index < x.end) {
+      var id = x.input[x.index] + x.input[x.index + 1] * 256;
+      var name = cluster.attributes[id] || "";
+      putBytes("Attribute Id", getBytes(x, 2), name);
+    }
+  }
+
+  function parseZclReadAttributesResponse(x, cluster) {
+    for (var i = 1; x.index < x.end; i++) {
+      putSeparator("Attribute " + i);
+      var id = x.input[x.index] + x.input[x.index + 1] * 256;
+      var name = cluster.attributes[id] || "";
+      putBytes("Attribute Id", getBytes(x, 2), name);
+      var status = parseZclStatusCode(x);
+      if (status == 0) {
+        var typeName = "Attribute Data Type";
+        var valueName = "Attribute Value";
+        var type = x.input[x.index];
+        if (type == 0x18) {
+          putBytes(typeName, getBytes(x, 1), "BITMAP8");
+          parseZclBitmap(8, x, valueName);
+        } else if (type == 0x19) {
+          putBytes(typeName, getBytes(x, 1), "BITMAP16");
+          parseZclBitmap(16, x, "Attribute Data Value");
+        } else if (type == 0x20) {
+          putBytes(typeName, getBytes(x, 1), "UINT8");
+          parseZclUint(8, x, valueName);
+        } else if (type == 0x21) {
+          putBytes(typeName, getBytes(x, 1), "UINT16");
+          parseZclUint(16, x, valueName);
+        } else if (type == 0x22) {
+          putBytes(typeName, getBytes(x, 1), "UINT24");
+          parseZclUint(24, x, valueName);
+        } else if (type == 0x23) {
+          putBytes(typeName, getBytes(x, 1), "UINT32");
+          parseZclUint(32, x, valueName);
+        } else if (type == 0x25) {
+          putBytes(typeName, getBytes(x, 1), "UINT48");
+          parseZclUint(48, x, valueName);
+        } else if (type == 0x2B) {
+          putBytes(typeName, getBytes(x, 1), "INT32");
+          parseZclInt32(x, valueName);
+        } else if (type == 0x30) {
+          putBytes(typeName, getBytes(x, 1), "ENUM8");
+          parseZclEnum(8, x, valueName);
+        } else if (type == 0x41) {
+          putBytes(typeName, getBytes(x, 1), "Octet String");
+          parseZclOctetString(x, valueName);
+        } else if (type == 0x42) {
+          putBytes(typeName, getBytes(x, 1), "Character String");
+          parseZclOctetString(x, valueName);
+        } else {
+          throw "TODO: Read Attributes Response data type " + type;
+        }
+      }
+    }
+  }
+
+  function parseZclDefaultResponse(x, cluster, frameControl) {
+    var command;
+    var commandId = x.input[x.index];
+    var direction = frameControl & 8;
+    if (direction == 0) {
+      command = cluster.responses[commandId];
+    } else {
+      command = cluster.commands[commandId];
+    }
+    var name = (command && command[0]) || "";
+    putBytes("Command Id", getBytes(x, 1), name);
+    parseZclStatusCode(x);
+  }
+
+  // ZSE Price Cluster
+
+  function parseZsePublishTariffInformation(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(32, x, "Issuer Tariff Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclBitmap(8, x, "Tariff Type / Charging Scheme");
+    parseZclOctetString(x, "Tariff Label");
+    parseZclUint(8, x, "Number of Price Tiers in Use");
+    parseZclUint(8, x, "Number of Block Thresholds in Use");
+    parseZclEnum(8, x, "Unit of Measure");
+    parseZclUint(16, x, "Currency");
+    parseZclBitmap(8, x, "Price Trailing Digit");
+    parseZclUint(32, x, "Standing Charge");
+    parseZclUint(8, x, "Tier Block Mode");
+    parseZclUint(24, x, "Block Threshold Multiplier");
+    parseZclUint(24, x, "Block Threshold Divisor");
+  }
+
+  function parseZsePublishPriceMatrix(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(32, x, "Issuer Tariff Id");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    parseZclBitmap(8, x, "Subpayload Control");
+    for (var i = 1; x.index < x.end; i++) {
+      parseZclUint(8, x, "Tier / Block Id " + i);
+      parseZclUint(32, x, "Price " + i);
+    }
+  }
+
+  function parseZsePublishBlockThresholds(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(32, x, "Issuer Tariff Id");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    parseZclBitmap(8, x, "Subpayload Control");
+    var n = parseZclUint(8, x, "Number of Block Thresholds");
+    for (var i = 1; i <= n; i++) {
+      parseZclUint(48, x, "Block Threshold " + i);
+    }
+  }
+
+  // ZSE Metering Cluster
+
+  function parseZseGetSnapshot(x) {
+    parseZclUtcTime(x, "Earliest Start Time");
+    parseZclUtcTime(x, "Latest End Time");
+    parseZclUint(8, x, "Snapshot Offset");
+    parseZclBitmap(32, x, "Snapshot Cause");
+  }
+
+  function parseZseGetSampledData(x) {
+    parseZclUint(16, x, "Sample Id");
+    parseZclUtcTime(x, "Earliest Sample Time");
+    parseZclEnum(8, x, "Sample Type");
+    parseZclUint(16, x, "Number of Samples");
+  }
+
+  function parseZsePublishSnapshot(x) {
+    parseZclUint(32, x, "Snapshot Id");
+    parseZclUtcTime(x, "Snapshot Time");
+    parseZclUint(8, x, "Snapshots Found");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    parseZclBitmap(32, x, "Snapshot Cause");
+    parseZclEnum(8, x, "Snapshot Payload Type");
+    putBytes("Snapshot Subpayload", x);
+  }
+
+  function parseZseGetSampledDataResponse(x) {
+    parseZclUint(16, x, "Sample Id");
+    parseZclUtcTime(x, "Sample Start Time");
+    parseZclEnum(8, x, "Sample Type");
+    parseZclUint(16, x, "Sample Request Interval");
+    var n = parseZclUint(16, x, "Number of Samples");
+    for (var i = 1; i <= n; i++) {
+      parseZclUint(24, x, "Sample " + i);
+    }
+  }
+
+  // ZSE Messaging Cluster
+
+  function paseZseDisplayMessage(x) {
+    parseZclUtcTime(x, "Message Id");
+    parseZclBitmap(8, x, "Message Control");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(16, x, "Duration in Minutes");
+    parseZclOctetString(x, "Message");
+    if (x.index < x.end) {
+      parseZclBitmap(8, x, "Extended Message Control");
+    }
+  }
+
+  // ZSE Prepayment Cluster
+
+  function parseZseSelectAvailableEmergencyCredit(x) {
+    parseZclUtcTime(x, "Command Issue Date Time");
+    parseZclEnum(8, x, "Originating Device");
+  }
+
+  function parseZseChangeDebt(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclOctetString(x, "Debt Label");
+    parseZclInt32(x, "Debt Amount");
+    parseZclUint(8, x, "Debt Recovery Method");
+    parseZclUint(8, x, "Debt Amount Type");
+    parseZclUint(32, x, "Debt Recovery Start Time");
+    parseZclUint(16, x, "Debt Recovery Collection Time");
+    parseZclUint(8, x, "Debt Recovery Frequency");
+    parseZclInt32(x, "Debt Recovery Amount");
+    parseZclUint(16, x, "Debt Recovery Balance Percentage");
+  }
+
+  function parseZseEmergencyCreditSetup(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(32, x, "Emergency Credit Limit");
+    parseZclUint(32, x, "Emergency Credit Threshold");
+  }
+
+  function parseZseConsumerTopUp(x) {
+    parseZclUint(8, x, "Originating Device");
+    parseZclUtrn(x, "Top Up Code");
+  }
+
+  function parseZseCreditAdjustment(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(8, x, "Credit Adjustment Type");
+    parseZclInt32(x, "Credit Adjustment Value");
+  }
+
+  function parseZseChangePaymentMode(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Implementation Date Time");
+    parseZclUint(16, x, "Proposed Payment Control Configuration");
+    parseZclInt32(x, "Cut Off Value");
+  }
+
+  function parseZseGetPrepaySnapshot(x) {
+    parseZclUtcTime(x, "Earliest Start Time");
+    parseZclUtcTime(x, "Latest End Time");
+    parseZclUint(8, x, "Snapshot Offset");
+    parseZclBitmap(32, x, "Snapshot Cause");
+  }
+
+  function parseZseGetTopUpLog(x) {
+    parseZclUtcTime(x, "Latest End Time");
+    parseZclUint(8, x, "Number of Records");
+  }
+
+  function parseZseSetLowCreditWarningLevel(x) {
+    parseZclUint(32, x, "Low Credit Warning Level");
+  }
+
+  function parseZseGetDebtRepaymentLog(x) {
+    parseZclUtcTime(x, "Latest End Time");
+    parseZclUint(8, x, "Number of Debts");
+    parseZclEnum(8, x, "Debt Type");
+  }
+
+  function parseZseSetMaximumCreditLimit(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Implementation Date Time");
+    parseZclUint(32, x, "Maximum Credit Level");
+    parseZclUint(32, x, "Maximum Credit Per Top Up");
+  }
+
+  function parseZseSetOverallDebtCap(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Implementation Date Time");
+    parseZclInt32(x, "Overall Debt Cap");
+  }
+
+  function parseZseChangePaymentModeResponse(x) {
+    parseZclUint(8, x, "Friendly Credit");
+    parseZclUint(32, x, "Friendly Credit Calendar ID");
+    parseZclUint(32, x, "Emergency Credit Limit");
+    parseZclUint(32, x, "Emergency Credit Threshold");
+  }
+
+  function parseZseConsumerTopUpResponse(x) {
+    parseZclUint(8, x, "Result Type");
+    parseZclInt32(x, "Top Up Value");
+    parseZclUint(8, x, "Source of Top Up");
+    parseZclInt32(x, "Credit Remaining");
+  }
+
+  function parseZsePublishTopUpLog(x) {
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    for (var i = 1; x.index < x.end; i++) {
+      parseZclUtrn(x, "Top Up Code " + i);
+      parseZclInt32(x, "Top Up Amount " + i);
+      parseZclUtcTime(x, "Top Up Time " + i);
+    }
+  }
+
+  function parseZsePublishDebtLog(x) {
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    for (var i = 1; x.index < x.end; i++) {
+      parseZclUtcTime(x, "Collection Time " + i);
+      parseZclUint(32, x, "Amount Collected " + i);
+      parseZclEnum(8, x, "Debt Type " + i);
+      parseZclUint(32, x, "Outstanding Debt " + i);
+    }
+  }
+
+  // ZSE Calendar Cluster
+
+  function parseZseGetDayProfiles(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUint(8, x, "Start Day Id");
+    parseZclUint(8, x, "Number of Days");
+  }
+
+  function parseZseGetWeekProfiles(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUint(8, x, "Start Week Id");
+    parseZclUint(8, x, "Number of Weeks");
+  }
+
+  function parseZseGetSeasons(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+  }
+
+  function parseZseGetSpecialDays(x) {
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(8, x, "Number of Events");
+    parseZclUint(8, x, "Calendar Type");
+    parseZclUint(32, x, "Provider Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+  }
+
+  function parseZsePublishCalendar(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(8, x, "Calendar Type");
+    parseZclUint(8, x, "Calendar Time Reference");
+    parseZclOctetString(x, "Calendar Name");
+    parseZclUint(8, x, "Number of Seasons");
+    parseZclUint(8, x, "Number of Week Profiles");
+    parseZclUint(8, x, "Number of Day Profiles");
+  }
+
+  function parseZsePublishDayProfile(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUint(8, x, "Day Id");
+    var entries = parseZclUint(8, x, "Number of Schedule Entries");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    parseZclUint(8, x, "Calendar Type");
+    for (var i = 1; i <= entries; i++) {
+      var dec = x.input[x.index] + x.input[x.index + 1] * 256;
+      var hour = Math.floor(dec / 60);
+      if (hour < 10)
+        hour = "0" + hour;
+      var minute = Math.floor(dec % 60);
+      if (minute < 10)
+        minute = "0" + minute;
+      var time = "" + hour + ":" + minute;
+      putBytes("Schedule Entry " + i + " Start Time", getBytes(x, 2), time);
+      parseZclUint(8, x, "Schedule Entry " + i + " Friendly Credit Enable");
+    }
+  }
+
+  function parseZsePublishWeekProfile(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUint(8, x, "Week Id");
+    putBytes("Day Id Refs (Monday to Sunday)", getBytes(x, 7));
+  }
+
+  function parseZsePublishSeasons(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    for (var i = 1; x.index < x.end; i++) {
+      parseZclDate(x, "Season " + i + " Start Date");
+      parseZclUint(8, x, "Season " + i + " Week Id Ref");
+    }
+  }
+
+  function parseZsePublishSpecialDays(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(32, x, "Issuer Calendar Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(8, x, "Calendar Type");
+    var numberOfSpecialDays = parseZclUint(8, x, "Number of Special Days");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    for (var i = 1; i <= numberOfSpecialDays; i++) {
+      parseZclDate(x, "Special Day " + i + " Date");
+      parseZclUint(8, x, "Special Day " + i + " Day Id Ref");
+    }
+  }
+
+  // ZSE Device Management Cluster
+
+  function parseZseReportEventConfiguration(x) {
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Total Commands");
+    for (var i = 1; x.index < x.end; i++) {
+      parseZclUint(16, x, "Event Id " + i);
+      parseZclBitmap(8, x, "Event Configuration " + i);
+    }
+  }
+
+  function parseZsePublishChangeOfTenancy(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclBitmap(8, x, "Tariff Type");
+    parseZclUtcTime(x, "Implmentation Date Time");
+    parseZclBitmap(32, x, "Proposed Tenancy Change Control");
+  }
+
+  function parseZseRequestNewPasswordResponse(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Implmentation Date Time");
+    parseZclUint(16, x, "Duration in Minutes");
+    parseZclEnum(8, x, "Password Type");
+    parseZclOctetString(x, "Password");
+  }
+
+  function parseZseUpdateSiteId(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Site Id Time");
+    parseZclUint(32, x, "Provider Id");
+    parseZclOctetString(x, "Site Id");
+  }
+
+  function parseZseSetEventConfiguration(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Date Time");
+    parseZclBitmap(8, x, "Event Configuration");
+    parseZclEnum(8, x, "Configuration Control");
+    // Event Configuration Payload (Apply by List)
+    var n = parseZclUint(8, x, "Number of Events");
+    for (var i = 1; i <= n; i++) {
+      parseZclUint(16, x, "Event Id");
+    }
+  }
+
+  function parseZseGetEventConfiguration(x) {
+    parseZclUint(16, x, "Event Id");
+  }
+
+  // ZSE Event Cluster
+
+  function parseZseGetEventLog(x) {
+    parseZclBitmap(8, x, "Event Control / Log Id");
+    parseZclUint(16, x, "Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUtcTime(x, "End Time");
+    parseZclUint(8, x, "Number of Events");
+    parseZclUint(16, x, "Event Offset");
+  }
+
+  function parseZseClearEventLogRequest(x) {
+    parseZclBitmap(8, x, "Log Id");
+  }
+
+  function parseZsePublishEventLog(x) {
+    parseZclUint(16, x, "Number of Events");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Total Commands");
+    parseZclBitmap(8, x, "Log Payload Control");
+    for (var i = 1; x.index < x.end; i++) {
+      parseZclBitmap(8, x, "Log Id " + i);
+      parseZclUint(16, x, "Event Id " + i);
+      parseZclUtcTime(x, "Event Time " + i);
+      parseZclOctetString(x, "Event Data " + i);
+    }
+  }
+
+  function parseZseClearEventLogResponse(x) {
+    parseZclBitmap(8, x, "Cleared Event Logs");
+  }
+
+  // ZCL Types
+
+  function parseZclUint(bits, x, name) {
+    var value = 0;
+    var bytes = bits / 8;
+    for (var i = 0; i < bytes; i++) {
+      value = value * 256 + x.input[x.index + bytes - i - 1];
+    }
+    putBytes(name, getBytes(x, bytes), value);
+    return value;
+  }
+
+  function parseZclInt32(x, name) {
+    var value = x.input[x.index] + x.input[x.index + 1] * 256 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x1000000;
+    if (value > 0x7fffffff)
+      value -= 0x100000000;
+    putBytes(name, getBytes(x, 4), value);
+    return value;
+  }
+
+  function parseZclOctetString(x, name) {
+    var length = x.input[x.index];
+    var value = "";
+    for (var i = 0; i < length; i++) {
+      value += String.fromCharCode(x.input[x.index + 1 + i]);
+    }
+    var printableValue = value.replace(/[^\x20-\x7E]/g, " ");
+    putBytes(name, getBytes(x, 1 + length), printableValue);
+  }
+
+  function parseZclBitmap(bits, x, name) {
+    putBytes(name, getBytes(x, bits / 8));
+  }
+
+  function parseZclEnum(bits, x, name) {
+    parseZclUint(bits, x, name);
+  }
+
+  function parseZclDate(x, name) {
+    var year = x.input[x.index];
+    var month = x.input[x.index + 1];
+    var dayOfMonth = x.input[x.index + 2];
+    var dayOfWeek = x.input[x.index + 3];
+    var date = "";
+    if (year == 255)
+      date += "(every year)";
+    else
+      date += 1900 + year;
+    date += "-";
+    if (month == 255)
+      date += "(every month)";
+    else if (month < 10)
+      date += "0" + month;
+    else
+      date += month;
+    date += "-";
+    if (dayOfMonth == 255)
+      date += "(every day)";
+    else if (dayOfMonth < 10)
+      date += "0" + dayOfMonth;
+    else
+      date += dayOfMonth;
+    putBytes(name, getBytes(x, 4), date);
+  }
+
+  function parseZclUtcTime(x, name) {
+    var value = x.input[x.index] + x.input[x.index + 1] * 256 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x1000000;
+    var text = "";
+    if (value != 0 && value != 0xffffffff) {
+      var secondsSince2000 = value;
+      var secondsSince1970 = secondsSince2000 + 946684800;
+      var millisecondsSince1970 = secondsSince1970 * 1000;
+      var d = new Date(millisecondsSince1970);
+      text = d.getUTCFullYear() + "-";
+      var month = d.getUTCMonth() + 1;
+      if (month < 10)
+        text += "0";
+      text += month + "-";
+      var day = d.getUTCDate();
+      if (day < 10)
+        text += "0";
+      text += day + " ";
+      var hour = d.getUTCHours();
+      if (hour < 10)
+        text += "0";
+      text += hour + ":";
+      var minute = d.getUTCMinutes();
+      if (minute < 10)
+        text += "0";
+      text += minute + ":";
+      var second = d.getUTCSeconds();
+      if (second < 10)
+        text += "0";
+      text += second;
+    }
+    putBytes(name, getBytes(x, 4), text);
+  }
+
+  function parseZclUtrn(x, name) {
+    var utrn = "";
+    for (var i = 0; i < 20; i++)
+      utrn += String.fromCharCode(x.input[x.index + 1 + i]);
+    var pptd = [ 0, 0 ];  /* two 32-bit numbers [ least significat, most significant ] */
+    for (var i = 0; i < 19; i++) {
+      var digit = utrn.charCodeAt(i) - 0x30;
+      var pptd0 = pptd[0] * 10 + digit;
+      pptd[0] = Math.floor(pptd0 % 0x100000000);
+      var carry = Math.floor(pptd0 / 0x100000000);
+      pptd[1] = pptd[1] * 10 + carry;  /* 304E2FF674C64 */
+    }
+    var pptdSubtrahend = [ 0x714A0000, 0x669D529B ];  /* 7,394,156,990,786,306,048 */
+    var ptut = [];
+    if (pptd[0] > pptdSubtrahend[0]) {
+      ptut[0] = pptd[0] - pptdSubtrahend[0];
+      ptut[1] = pptd[1] - pptdSubtrahend[1];
+    } else {
+      ptut[0] = pptd[0] - pptdSubtrahend[0] + 0x100000000;
+      ptut[1] = pptd[1] - pptdSubtrahend[1] - 1;
+    }
+    var ptutValue = ptut[1] & 0x1fff;
+    var ptutValueClass = (ptut[1] >> 13) & 3;
+    putBytes(name, getBytes(x, 21), "UTRN: " + utrn + ", PTUT Value Class: " + ptutValueClass + ", PTUT Value: " + ptutValue);
+  }
+
+  function parseZclStatusCode(x) {
+    var names = {
+      0x00: "Success",
+      0x01: "Failure",
+      0x7e: "Not Authorized",
+      0x7f: "Reserved Field Not Zero",
+      0x80: "Malformed Command",
+      0x81: "Unsup Cluster Command",
+      0x82: "Unsup General Command",
+      0x83: "Unsup Manuf Cluster Command",
+      0x84: "Unsup Manuf General Command",
+      0x85: "Invalid Field",
+      0x86: "Unsupported Attribute",
+      0x87: "Invalid Value",
+      0x88: "Read Only",
+      0x89: "Insufficient Space",
+      0x8a: "Duplicate Exists",
+      0x8b: "Not Found",
+      0x8c: "Unreportable Attribute",
+      0x8d: "Invalid Data Type",
+      0x8e: "Invalid Selector",
+      0x8f: "Write Only",
+      0x90: "Inconsistent Startup State",
+      0x91: "Defined Out Of Band",
+      0x92: "Inconsistent",
+      0x93: "Action Denied",
+      0x94: "Timeout",
+      0x95: "Abort",
+      0x96: "Invalid Image",
+      0x97: "Wait For Data",
+      0x98: "No Image Available",
+      0x99: "Require More Image",
+      0xc0: "Hardware Failure",
+      0xc1: "Software Failure",
+      0xc2: "Calibration Error",
+    };
+    var value = x.input[x.index];
+    var name = names[value] || "";
+    putBytes("Status Code", getBytes(x, 1), name);
+    return value;
+  }
+}
+</script>
+</body>
+</html>
