@@ -235,6 +235,8 @@ function parseGbcsMessage(text) {
         } else {
           parseSetTimeResponse(x);
         }
+      } else if (messageCode == 0x008B) {  // GCS53
+        parseGbzGcs53AlertPayload(x);
       } else if (messageCode == 0x008C) {  // GCS59
         if (craFlag == 1) {
           parseGpfDeviceLogRestoreCommand(x);
@@ -437,7 +439,7 @@ function parseGbcsMessage(text) {
       0x009D: "GCS21d Read GSME Configuration Data Device Information (BillingCalendar)",
       0x009E: "GCS21e Read GSME/GPF Configuration Data Device Information (device identity)",
       0x009F: "GCS21f Read GSME Tariff Data",
-      0x00A0: "GCS61 Read gas Daily Consumption Log",
+      0x00A0: "GCS61 Read Gas Daily Consumption Log",
       0x00A1: "CS10b Read ZigBee Device Security Log",
       0x00A2: "ECS01b Set Price on ESME",
       0x00A3: "GCS01b Set Price on GSME",
@@ -1522,40 +1524,7 @@ function parseGbcsMessage(text) {
     putBytes("Number of GBZ components", getBytes(x, 1), numberOfGbzComponents);
     for (var i = 1; i <= numberOfGbzComponents; i++) {
       putSeparator("GBZ Component " + i);
-      var controlField = x.input[x.index];
-      putBytes("Control Field", getBytes(x, 1));
-      var cluster = parseClusterId(x);
-      // Extended Header GBZ Command Length
-      var extendedLen = x.input[x.index] * 256 + x.input[x.index + 1];
-      putBytes("Length", getBytes(x, 2), extendedLen);
-      var y = getBytes(x, extendedLen);
-      try {
-        if (controlField & 0x02) {  // encrypted content
-          putBytes("Additional Header", getBytes(y, 2));
-        } else if (controlField & 0x10) {
-          putBytes("From Date Time", getBytes(y, 4));
-        }
-        // ZCL Header
-        var frameControl = y.input[y.index];
-        putBytes("Frame Control", getBytes(y, 1));
-        putBytes("Sequence Number", getBytes(y, 1));
-        var command = parseCommandId(y, frameControl, cluster);
-        if (controlField & 0x02) {  // encrypted payload
-          var len = y.input[y.index] * 256 + y.input[y.index + 1];
-          putBytes("Ciphered Information Length", getBytes(y, 2), len);
-          putBytes("Security Header", getBytes(y, 5));
-          putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
-          putBytes("AE MAC", getBytes(y, 12));
-        } else {  // plaintext payload
-          if (command && command.parse) {
-            command.parse(y, cluster, frameControl);
-          } else {
-            putBytes("ZCL Payload", y);
-          }
-        }
-      } catch(error) {
-        putBytes("ERROR", y, error);
-      }
+      parseGbzComponent(x);
     }
   }
 
@@ -1563,48 +1532,132 @@ function parseGbcsMessage(text) {
     putBytes("Profile ID", getBytes(x, 2));
     putBytes("Number of GBZ components", getBytes(x, 1));
     putBytes("Alert Code", getBytes(x, 2));
-    putBytes("Timestamp", getBytes(x, 4));
+    parseGbzTime(x, "Time Stamp");
     if (x.index < x.end) {
       putBytes("GBZ Use Case Specific Components", x);
     }
   }
 
+  function parseGbzGcs53AlertPayload(x) {
+    putBytes("Profile ID", getBytes(x, 2));
+    putBytes("Number of GBZ components", getBytes(x, 1));
+    putBytes("Alert Code", getBytes(x, 2));
+    parseGbzTime(x, "Time Stamp");
+    parseGbzComponent(x);
+  }
+
+  function parseGbzComponent(x) {
+    var controlField = x.input[x.index];
+    putBytes("Control Field", getBytes(x, 1));
+    var cluster = parseClusterId(x);
+    // Extended Header GBZ Command Length
+    var extendedLen = x.input[x.index] * 256 + x.input[x.index + 1];
+    putBytes("Length", getBytes(x, 2), extendedLen);
+    var y = getBytes(x, extendedLen);
+    try {
+      if (controlField & 0x02) {  // encrypted content
+        putBytes("Additional Header", getBytes(y, 2));
+      } else if (controlField & 0x10) {
+        parseGbzTime(y, "From Date Time");
+      }
+      // ZCL Header
+      var frameControl = y.input[y.index];
+      putBytes("Frame Control", getBytes(y, 1));
+      putBytes("Sequence Number", getBytes(y, 1));
+      var command = parseCommandId(y, frameControl, cluster);
+      if (controlField & 0x02) {  // encrypted payload
+        var len = y.input[y.index] * 256 + y.input[y.index + 1];
+        putBytes("Ciphered Information Length", getBytes(y, 2), len);
+        putBytes("Security Header", getBytes(y, 5));
+        putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
+        putBytes("AE MAC", getBytes(y, 12));
+      } else {  // plaintext payload
+        if (command && command.parse) {
+          command.parse(y, cluster, frameControl);
+        } else {
+          putBytes("ZCL Payload", y);
+        }
+      }
+    } catch(error) {
+      putBytes("ERROR", y, error);
+    }
+  }
+
   function parseClusterId(x) {
     var clusters = {
+      0x0000: {
+        name: "Basic",
+        attributes: {
+          0x0003: "HW Version",
+          0x0004: "Manufacturer Name",
+          0x0005: "Model Identifier",
+        },
+        commands: {},
+        responses: {},
+      },
       0x0700: {
         name: "Price",
         attributes: {
+          0x0100: "Block 1 Threshold",
+          0x0101: "Block 2 Threshold",
+          0x0102: "Block 3 Threshold",
+          0x0202: "Threshold Multiplier",
+          0x0203: "Threshold Divisor",
+          0x0301: "Standing Charge",
           0x0302: "Conversion Factor",
           0x0303: "Conversion Factor Trailing Digit",
           0x0304: "Calorific Value",
           0x0305: "Calorific Value Unit",
           0x0306: "Calorific Value Trailing Digit",
+          0x0400: "No Tier Block 1 Price",
+          0x0401: "No Tier Block 2 Price",
+          0x0402: "No Tier Block 3 Price",
+          0x0403: "No Tier Block 4 Price",
+          0x0410: "Tier 1 Block 1 Price",
+          0x0420: "Tier 2 Block 1 Price",
+          0x0430: "Tier 3 Block 1 Price",
+          0x0440: "Tier 4 Block 1 Price",
+          0x0615: "Unit of Measure",
           0x0616: "Currency",
           0x0617: "Price Trailing Digits",
         },
-        commands: {},
+        commands: {
+          0: [ "Get Current Price", parseZseGetCurrentPrice ],
+          11: [ "Get Billing Period", parseZseGetBillingPeriod ],
+        },
         responses: {
+          0: [ "Publish Price", parseZsePublishPrice ],
+          1: [ "Publish Block Period", parseZsePublishBlockPeriod ],
+          2: [ "Publish Conversion Factor", parseZsePublishConversionFactor ],
+          3: [ "Publish Calorific Value", parseZsePublishCalorificValue ],
           4: [ "Publish Tariff Information", parseZsePublishTariffInformation ],
           5: [ "Publish Price Matrix", parseZsePublishPriceMatrix ],
           6: [ "Publish Block Thresholds", parseZsePublishBlockThresholds ],
+          9: [ "Publish Billing Period", parseZsePublishBillingPeriod ],
         },
       },
       0x0702: {
         name: "Metering",
         attributes: {
           0x0000: "Current Summation Delivered",
+          0x0014: "Supply Status",
           0x0100: "Current Tier 1 Summation Delivered",
           0x0102: "Current Tier 2 Summation Delivered",
           0x0104: "Current Tier 3 Summation Delivered",
           0x0106: "Current Tier 4 Summation Delivered",
+          0x0205: "Remaining Battery Life in Days",
+          0x0206: "Current Meter Id",
           0x0300: "Unit of Measure",
           0x0301: "Multiplier",
           0x0302: "Divisor",
           0x0307: "Site ID",
+          0x0607: "Supply Tamper State",
+          0x0608: "SupplyDepletionState",
           0x0700: "Current no Tier Block 1 Summation Delivered",
           0x0701: "Current no Tier Block 2 Summation Delivered",
           0x0702: "Current no Tier Block 3 Summation Delivered",
           0x0703: "Current no Tier Block 4 Summation Delivered",
+          0x0A00: "Bill to Date Delivered",
           0x0B10: "Uncontrolled Flow Threshold",
           0x0B11: "Uncontrolled Flow Threshold Unit of Measure",
           0x0B12: "Uncontrolled Flow Multiplier",
@@ -1614,11 +1667,17 @@ function parseGbcsMessage(text) {
         },
         commands: {
           6: [ "Get Snapshot", parseZseGetSnapshot ],
+          7: [ "Start Sampling", parseZseStartSampling ],
           8: [ "Get Sampled Data", parseZseGetSampledData ],
+          11: [ "Change Supply", parseZseChangeSupply ],
+          13: [ "Set Supply Status", parseZseSetSupplyStatus ],
+          14: [ "Set Uncontrolled Flow Threshold", parseZseSetUncontrolledFlowThreshold ],
         },
         responses: {
           6: [ "Publish Snapshot", parseZsePublishSnapshot ],
           7: [ "Get Sampled Data Response", parseZseGetSampledDataResponse ],
+          12: [ "Supply Status Response", parseZseSupplyStatusResponse ],
+          13: [ "Start Sampling Response", parseZseStartSamplingResponse ],
         },
       },
       0x0703: {
@@ -1699,10 +1758,12 @@ function parseGbcsMessage(text) {
         },
         responses: {
           0: [ "Publish Change of Tenancy", parseZsePublishChangeOfTenancy ],
+          1: [ "Publish Change of Supplier", parseZsePublishChangeOfSupplier ],
           2: [ "Request New Password Response", parseZseRequestNewPasswordResponse ],
           3: [ "Update Site Id", parseZseUpdateSiteId ],
           4: [ "Set Event Configuration", parseZseSetEventConfiguration ],
           5: [ "Get Event Configuration", parseZseGetEventConfiguration ],
+          6: [ "Update CIN", parseZseUpdateCin ],
         },
       },
       0x0709: {
@@ -1828,6 +1889,53 @@ function parseGbcsMessage(text) {
 
   // ZSE Price Cluster
 
+  function parseZseGetCurrentPrice(x) {
+    parseZclUint(8, x, "Command Options");
+  }
+
+  function parseZseGetBillingPeriod(x) {
+    parseZclUtcTime(x, "Earliest Start Time");
+    parseZclUint(32, x, "Minimum Issuer Event Id");
+    parseZclUint(8, x, "Number of Commands");
+    parseZclBitmap(8, x, "Tariff Type");
+  }
+
+  function parseZsePublishPrice(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclOctetString(x, "Rate Label");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Current Time");
+    parseZclEnum(8, x, "Unit of Measure");
+    parseZclUint(16, x, "Currency");
+    parseZclBitmap(8, x, "Price Trailing Digit and Price Tier");
+  }
+
+  function parseZsePublishBlockPeriod(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Block Period Start Time");
+    parseZclUint(24, x, "Block Period Duration");
+    parseZclBitmap(8, x, "Block Period Control");
+    parseZclBitmap(8, x, "Block Period Duration Type");
+    parseZclBitmap(8, x, "Tariff Type");
+    parseZclEnum(8, x, "Tariff Resolution Period");
+  }
+
+  function parseZsePublishConversionFactor(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(32, x, "Conversion Factor");
+    parseZclBitmap(8, x, "Conversion Factor Trailing Digit");
+  }
+
+  function parseZsePublishCalorificValue(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(32, x, "Calorific Value");
+    parseZclEnum(8, x, "Calorific Value Unit");
+    parseZclBitmap(8, x, "Calorific Value Trailing Digit");
+  }
+
   function parseZsePublishTariffInformation(x) {
     parseZclUint(32, x, "Provider Id");
     parseZclUtcTime(x, "Issuer Event Id");
@@ -1874,6 +1982,15 @@ function parseGbcsMessage(text) {
     }
   }
 
+  function parseZsePublishBillingPeriod(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Billing Period Start Time");
+    parseZclUint(24, x, "Billing Period Duration");
+    parseZclUint(8, x, "Billing Period Duration Type");
+    parseZclUint(8, x, "Tariff Type");
+  }
+
   // ZSE Metering Cluster
 
   function parseZseGetSnapshot(x) {
@@ -1883,11 +2000,45 @@ function parseGbcsMessage(text) {
     parseZclBitmap(32, x, "Snapshot Cause");
   }
 
+  function parseZseStartSampling(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Start Sampling Time");
+    parseZclEnum(8, x, "Sample Type");
+    parseZclUint(16, x, "Sample Request Interval");
+    parseZclUint(16, x, "Max Number of Samples");
+  }
+
   function parseZseGetSampledData(x) {
     parseZclUint(16, x, "Sample Id");
     parseZclUtcTime(x, "Earliest Sample Time");
     parseZclEnum(8, x, "Sample Type");
     parseZclUint(16, x, "Number of Samples");
+  }
+
+  function parseZseChangeSupply(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Request Date Time");
+    parseZclUtcTime(x, "Implmentation Date Time");
+    parseZclEnum(8, x, "Proposed Supply Status");
+    parseZclBitmap(8, x, "Supply Control Bits");
+  }
+
+  function parseZseSetSupplyStatus(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclEnum(8, x, "Supply Tamper State");
+    parseZclEnum(8, x, "Supply Depletion State");
+    parseZclEnum(8, x, "Supply Uncontrolled Flow State");
+    parseZclEnum(8, x, "Low Limit Supply State");
+  }
+
+  function parseZseSetUncontrolledFlowThreshold(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUint(16, x, "Uncontrolled Flow Threshold");
+    parseZclEnum(8, x, "Unit of Measure");
+    parseZclUint(16, x, "Multiplier");
+    parseZclUint(16, x, "Divisor");
   }
 
   function parseZsePublishSnapshot(x) {
@@ -1910,6 +2061,17 @@ function parseGbcsMessage(text) {
     for (var i = 1; i <= n; i++) {
       parseZclUint(24, x, "Sample " + i);
     }
+  }
+
+  function parseZseSupplyStatusResponse(x) {
+    parseZclUint(32, x, "Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "Implementation Date Time");
+    parseZclEnum(8, x, "Supply Status");
+  }
+
+  function parseZseStartSamplingResponse(x) {
+    parseZclUint(16, x, "Sample Id");
   }
 
   // ZSE Messaging Cluster
@@ -2163,6 +2325,17 @@ function parseGbcsMessage(text) {
     parseZclBitmap(32, x, "Proposed Tenancy Change Control");
   }
 
+  function parseZsePublishChangeOfSupplier(x) {
+    parseZclUint(32, x, "Current Provider Id");
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclBitmap(8, x, "Tariff Type");
+    parseZclUint(32, x, "Proposed Provider Id");
+    parseZclUtcTime(x, "Provider Change Implementation Time");
+    parseZclBitmap(32, x, "Provider Change Control");
+    parseZclOctetString(x, "Proposed Provider Name");
+    parseZclOctetString(x, "Proposed Provider Contact Details");
+  }
+
   function parseZseRequestNewPasswordResponse(x) {
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUtcTime(x, "Implmentation Date Time");
@@ -2192,6 +2365,13 @@ function parseGbcsMessage(text) {
 
   function parseZseGetEventConfiguration(x) {
     parseZclUint(16, x, "Event Id");
+  }
+
+  function parseZseUpdateCin(x) {
+    parseZclUtcTime(x, "Issuer Event Id");
+    parseZclUtcTime(x, "CIN Implementation Time");
+    parseZclUint(32, x, "Provider Id");
+    parseZclOctetString(x, "Customer Id Number");
   }
 
   // ZSE Event Cluster
@@ -2291,8 +2471,17 @@ function parseGbcsMessage(text) {
     putBytes(name, getBytes(x, 4), date);
   }
 
+  function parseGbzTime(x, name) {
+    var value = x.input[x.index] * 0x1000000 + x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+    putBytes(name, getBytes(x, 4), toUtcTimeString(value));
+  }
+
   function parseZclUtcTime(x, name) {
     var value = x.input[x.index] + x.input[x.index + 1] * 256 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x1000000;
+    putBytes(name, getBytes(x, 4), toUtcTimeString(value));
+  }
+
+  function toUtcTimeString(value) {
     var text = "";
     if (value != 0 && value != 0xffffffff) {
       var secondsSince2000 = value;
@@ -2321,7 +2510,7 @@ function parseGbcsMessage(text) {
         text += "0";
       text += second;
     }
-    putBytes(name, getBytes(x, 4), text);
+    return text;
   }
 
   function parseZclUtrn(x, name) {
