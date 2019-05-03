@@ -36,10 +36,15 @@ td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-spa
 <p><table id=table></table>
 <p>Source: <a href=https://github.com/andrebdo/gbcs-parser-js>https://github.com/andrebdo/gbcs-parser-js</a>
 <script>
+
 function parse() {
-  var textarea = document.getElementById("textarea");
-  var table = document.getElementById("table");
-  table.innerHTML = parseGbcsMessage(textarea.value);
+    var table = document.getElementById("table");
+    table.innerHTML = parseGbcsMessage(textarea.value);
+    try {
+        window.location.hash = hash = '#' + textarea.value;
+    } catch (e) { // fails with longer than ~2048 chars in IE
+        window.location.hash = hash = '#';
+    }
 }
 function parseGbcsMessage(text) {
   var output = "";
@@ -827,7 +832,7 @@ function parseGbcsMessage(text) {
       4: "Access Control Broker",
       5: "Transitional Change of Supplier",
       6: "WAN Provider",
-      7: "Issuing Authority", 
+      7: "Issuing Authority",
       127: "Other"
     };
     parseInteger(x, "Remote Party Role", values);
@@ -883,7 +888,7 @@ function parseGbcsMessage(text) {
       9: "Any by Contingency"
     };
     parseInteger(x, "Credentials Replacement Mode", values);
-  }  
+  }
 
   function parseAuthorisingRemotePartyControl(x) {
     var s = parseSequence(x, "Authorising Remote Party Control");
@@ -2581,6 +2586,33 @@ function parseGbcsMessage(text) {
     return value;
   }
 }
+
+function loadFromHash() {
+    if (window.location.hash && window.location.hash != hash) {
+        hash = window.location.hash;
+        // Firefox is not consistent with other browsers and return an
+        // already-decoded hash string so we risk double-decoding here,
+        // but since % is not allowed in base64 nor hexadecimal, it's ok
+        var val = decodeURIComponent(hash.substr(1));
+        textarea.value = val;
+        parse();
+    }
+}
+
+function stop(e) {
+    e.stopPropagation();
+    e.preventDefault();
+}
+
+// main
+textarea = document.getElementById("textarea");
+hash = null;
+
+if ('onhashchange' in window)
+    window.onhashchange = loadFromHash;
+loadFromHash();
+document.ondragover = stop;
+document.ondragleave = stop;
 </script>
 </body>
 </html>
