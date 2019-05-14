@@ -34,6 +34,7 @@ td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-spa
 <p><textarea id=textarea placeholder="Paste here the hex string of the GBCS message" autofocus></textarea>
 <p><button type=button onclick=parse()>Parse</button>
 <p><table id=table></table>
+<p>GBCS V2.1 Use Cases: <a href=https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html>https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html</a>
 <p>Source: <a href=https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html>https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html</a>
 <p>Original source: <a href=https://github.com/andrebdo/gbcs-parser-js>https://github.com/andrebdo/gbcs-parser-js</a>
 <script>
@@ -1451,6 +1452,12 @@ function parseGbcsMessage(text) {
     return cosemClass;
   }
 
+  function formatObis(x) {
+    return x.input[x.index] + "-" + x.input[x.index + 1]
+      + ":" + x.input[x.index + 2] + "." + x.input[x.index + 3]
+      + "." + x.input[x.index + 4] + "." + x.input[x.index + 5];
+  }
+
   function parseDlmsCosemInstanceId(x, cosemClass) {
     var id = x.input[x.index] * 0x10000000000
            + x.input[x.index + 1] * 0x100000000
@@ -1458,7 +1465,7 @@ function parseGbcsMessage(text) {
            + x.input[x.index + 3] * 0x10000
            + x.input[x.index + 4] * 0x100
            + x.input[x.index + 5];
-    var name = cosemClass.instances[id] || "";
+    var name = cosemClass.instances[id] || formatObis(x);
     putBytes("Instance Id", getBytes(x, 6), name);
   }
 
