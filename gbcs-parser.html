@@ -43,7 +43,7 @@ function parse() {
     var table = document.getElementById("table");
     table.innerHTML = parseGbcsMessage(textarea.value);
     try {
-        window.location.hash = hash = '#' + textarea.value;
+        window.location.hash = hash = '#' + textarea.value.replace(/\s/g, '');
     } catch (e) { // fails with longer than ~2048 chars in IE
         window.location.hash = hash = '#';
     }
@@ -102,6 +102,10 @@ function parseGbcsMessage(text) {
     var y = { input: x.input, index: x.index, end: x.index + n };
     x.index += n;
     return y;
+  }
+
+  function getLink(name, loc) {
+    return "<a href=\"" + loc + "\">" + name + "</a>";
   }
 
   function parseGeneralCiphering(x) {
@@ -938,6 +942,13 @@ function parseGbcsMessage(text) {
     parseEnumerated(x, "Status Code", values);
   }
 
+  function getAsn1Decoder(name, x, n) {
+    var bin = x.input.slice(x.index, x.index + n);
+    var base64 = btoa(String.fromCharCode.apply(null, bin));
+    var url = "https://lapo.it/asn1js#" + base64; // ASN.1 JavaScript decoder
+    return getLink(name, url);
+  }
+
   function parseCertificate(x) {
     var length = x.input[x.index + 1];
     var header = 2;
@@ -948,7 +959,8 @@ function parseGbcsMessage(text) {
       length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
       header = 4;
     }
-    putBytes("Certificate", getBytes(x, header + length));
+    var decoder = getAsn1Decoder("Decode certificate", x, header + length);
+    putBytes("Certificate", getBytes(x, header + length), decoder);
   }
 
   // ASN.1 Types
