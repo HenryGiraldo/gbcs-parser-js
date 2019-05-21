@@ -1,8 +1,10 @@
 # gbcs-parser-js
 
+This project is a fork of: https://github.com/andrebdo/gbcs-parser-js
+
 A parser of GBCS messages, written in JavaScript.
 
-You can try it here: https://andrebdo.github.io/gbcs-parser-js/gbcs-parser.html
+You can try it here: https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html
 
 GBCS messages are specified in the Great Britain Companion Specification (GBCS):
 https://smartenergycodecompany.co.uk/the-developing-sec/
