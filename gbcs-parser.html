@@ -1478,7 +1478,7 @@ function parseGbcsMessage(text) {
            + x.input[x.index + 3] * 0x10000
            + x.input[x.index + 4] * 0x100
            + x.input[x.index + 5];
-    var name = cosemClass.instances[id] || formatObis(x);
+    var name = formatObis(x) + " - " + cosemClass.instances[id];
     putBytes("Instance Id", getBytes(x, 6), name);
   }
 
