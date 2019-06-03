@@ -79,7 +79,7 @@ function parseGbcsMessage(text) {
       output += h.charAt((b >> 4) & 15) + h.charAt(b & 15);
     }
     output += "<td>"
-    if (notes) {
+    if (notes != undefined) {
       output += notes;
     }
   }
