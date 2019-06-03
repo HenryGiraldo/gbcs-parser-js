@@ -1572,9 +1572,33 @@ function parseGbcsMessage(text) {
     parseGbzComponent(x);
   }
 
+  function arrayToHex(arr) {
+    var ret = "";
+    for (var i = 0; i < arr.length; i++) {
+        var str = arr[i].toString(16);
+        z = 2 - str.length + 1;
+        str = Array(z).join("0") + str;
+        ret += str;
+    }
+    return ret;
+  }
+
+  function getSwappedFrame(name, x) {
+    x.input[x.index] ^= 0x02;
+    var url = "https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html#" + arrayToHex(x.input);
+    x.input[x.index] ^= 0x02;
+    return getLink(name, url);
+  }
+
   function parseGbzComponent(x) {
     var controlField = x.input[x.index];
-    putBytes("Control Field", getBytes(x, 1));
+    if (controlField & 0x02) {
+      swapped = getSwappedFrame("(Encryted) Try Decrypted", x)
+      putBytes("Control Field", getBytes(x, 1), swapped);
+    } else {
+      //swapped = getSwappedFrame("(Decrypted) Go encrypted", x)
+      putBytes("Control Field", getBytes(x, 1));
+    }
     var cluster = parseClusterId(x);
     // Extended Header GBZ Command Length
     var extendedLen = x.input[x.index] * 256 + x.input[x.index + 1];
