@@ -32,13 +32,55 @@ td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-spa
 <body>
 <h1>GBCS Message Parser</h1>
 <p><textarea id=textarea placeholder="Paste here the hex string of the GBCS message" autofocus></textarea>
-<p><button type=button onclick=parse()>Parse</button>
+<p><button type=button onclick=parse()>Parse</button></button></p>
+<p><textarea hidden id=cipher_key placeholder="Paste here the cipher key, if you try to decrypt with this empty field, the message will be re-interpreted as if it were not encrypted."></textarea>
+<p><button hidden type=button onclick=decrypt() id=decrypt_buttom>Decrypt</button></button></p>
+
 <p><table id=table></table>
 <p>GBCS V3.1 Use Cases: <a href=https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html>https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html</a>
 <p>DLMS V3.1 Use Cases: <a href=https://henrygiraldo.github.io/gbcs-parser-js/dlms-use-cases.html>https://henrygiraldo.github.io/gbcs-parser-js/dlms-use-cases.html</a>
 <p>Source: <a href=https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html>https://github.com/henrygiraldo/gbcs-parser-js/gbcs-parser.html</a>
 <p>Original source: <a href=https://github.com/andrebdo/gbcs-parser-js>https://github.com/andrebdo/gbcs-parser-js</a>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.2/rollups/aes.js"></script>
 <script>
+
+var control_field_array = []
+var ciphered_pos = []
+var ciphered_len = []
+
+function enable_upload_key(ctrl_field) {
+    control_field_array.push(ctrl_field);
+    var x = document.getElementById("cipher_key");
+    x.hidden = false;
+    var x = document.getElementById("decrypt_buttom");
+    x.hidden = false;
+}
+
+function arrayToHex(arr) {
+  var ret = "";
+  for (var i = 0; i < arr.length; i++) {
+      var str = arr[i].toString(16);
+      z = 2 - str.length + 1;
+      str = Array(z).join("0") + str;
+      ret += str;
+  }
+  return ret;
+}
+
+function parseHexString(text) {
+  var bytes = new Uint8Array(text.length / 2);
+  var length = 0;
+  for (var i = 0; i + 1 < text.length; i++) {
+    var c = text.charCodeAt(i);
+    if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103)) {
+      c = text.charCodeAt(i + 1);
+      if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103)) {
+        bytes[length++] = parseInt(text.substr(i++, 2), 16);
+      }
+    }
+  }
+  return { input: bytes, index: 0, end: length };
+}
 
 function parse() {
     var table = document.getElementById("table");
@@ -49,6 +91,37 @@ function parse() {
         window.location.hash = hash = '#';
     }
 }
+
+function decrypt() {
+    //x = parseHexString(textarea.value);
+    //window.open(getSwappedFrame(x));
+
+    var cipher_key = document.getElementById("cipher_key");
+    var x = parseHexString(textarea.value);
+    for (var i = 0; i < ciphered_len.length; i++) {
+        var message = x.input.slice(ciphered_pos[i], ciphered_pos[i] + ciphered_len[i])
+        console.log(arrayToHex(message));
+        console.log(cipher_key.value);
+        //crypto_msg = CryptoJS.enc.Hex.parse(arrayToHex(message))
+        //crypto_cipher_key = CryptoJS.enc.Hex.parse(cipher_key.value)
+        //var dec_code = CryptoJS.AES.decrypt(crypto_msg, crypto_cipher_key);
+        var dec_code = CryptoJS.AES.decrypt(arrayToHex(message), cipher_key.value);
+        console.log(dec_code.toString());
+    }
+}
+
+function getSwappedFrame(x) {
+    for (var i = 0; i < control_field_array.length; i++) {
+        x.input[control_field_array[i]] ^= 0x02;
+    }
+    var url = "https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html#" + arrayToHex(x.input);
+    for (var i = 0; i < control_field_array.length; i++) {
+        x.input[control_field_array[i]] ^= 0x02;
+    }
+    return url;
+}
+
+
 function parseGbcsMessage(text) {
   var output = "";
   var x = parseHexString(text);
@@ -84,29 +157,10 @@ function parseGbcsMessage(text) {
     }
   }
 
-  function parseHexString(text) {
-    var bytes = new Uint8Array(text.length / 2);
-    var length = 0;
-    for (var i = 0; i + 1 < text.length; i++) {
-      var c = text.charCodeAt(i);
-      if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103)) {
-        c = text.charCodeAt(i + 1);
-        if ((c > 47 && c < 58) || (c > 64 && c < 71) || (c > 96 && c < 103)) {
-          bytes[length++] = parseInt(text.substr(i++, 2), 16);
-        }
-      }
-    }
-    return { input: bytes, index: 0, end: length };
-  }
-
   function getBytes(x, n) {
     var y = { input: x.input, index: x.index, end: x.index + n };
     x.index += n;
     return y;
-  }
-
-  function getLink(name, loc) {
-    return "<a href=\"" + loc + "\">" + name + "</a>";
   }
 
   function parseGeneralCiphering(x) {
@@ -1572,33 +1626,12 @@ function parseGbcsMessage(text) {
     parseGbzComponent(x);
   }
 
-  function arrayToHex(arr) {
-    var ret = "";
-    for (var i = 0; i < arr.length; i++) {
-        var str = arr[i].toString(16);
-        z = 2 - str.length + 1;
-        str = Array(z).join("0") + str;
-        ret += str;
-    }
-    return ret;
-  }
-
-  function getSwappedFrame(name, x) {
-    x.input[x.index] ^= 0x02;
-    var url = "https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html#" + arrayToHex(x.input);
-    x.input[x.index] ^= 0x02;
-    return getLink(name, url);
-  }
-
   function parseGbzComponent(x) {
     var controlField = x.input[x.index];
     if (controlField & 0x02) {
-      swapped = getSwappedFrame("(Encryted) Try Decrypted", x)
-      putBytes("Control Field", getBytes(x, 1), swapped);
-    } else {
-      //swapped = getSwappedFrame("(Decrypted) Go encrypted", x)
-      putBytes("Control Field", getBytes(x, 1));
+      enable_upload_key(x.index);
     }
+    putBytes("Control Field", getBytes(x, 1));
     var cluster = parseClusterId(x);
     // Extended Header GBZ Command Length
     var extendedLen = x.input[x.index] * 256 + x.input[x.index + 1];
@@ -1619,6 +1652,8 @@ function parseGbcsMessage(text) {
         var len = y.input[y.index] * 256 + y.input[y.index + 1];
         putBytes("Ciphered Information Length", getBytes(y, 2), len);
         putBytes("Security Header", getBytes(y, 5));
+        ciphered_len.push(len - 5 - 12);    //FIXME
+        ciphered_pos.push(y.index) //FIXME
         putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
         putBytes("AE MAC", getBytes(y, 12));
       } else {  // plaintext payload
