@@ -943,10 +943,10 @@ function parseGbcsMessage(text) {
     parseEnumerated(x, "Status Code", values);
   }
 
-  function getAsn1Decoder(name, x, n) {
+  function getCertificateDecoder(name, x, n) {
     var bin = x.input.slice(x.index, x.index + n);
     var base64 = btoa(String.fromCharCode.apply(null, bin));
-    var url = "https://lapo.it/asn1js#" + base64; // ASN.1 JavaScript decoder
+    var url = "https://ssldecoder.org/?csr=-----BEGIN+CERTIFICATE-----%0D%0A" + encodeURIComponent(base64) + "%0D%0A-----END+CERTIFICATE-----";
     return getLink(name, url);
   }
 
@@ -960,7 +960,7 @@ function parseGbcsMessage(text) {
       length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
       header = 4;
     }
-    var decoder = getAsn1Decoder("Decode certificate", x, header + length);
+    var decoder = getCertificateDecoder("Decode certificate", x, header + length);
     putBytes("Certificate", getBytes(x, header + length), decoder);
   }
 
