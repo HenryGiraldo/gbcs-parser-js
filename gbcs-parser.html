@@ -547,6 +547,193 @@ function parseGbcsMessage(text) {
     return messageCode;
   }
 
+  function getAlertCodeName(/*int*/ alertCode) {
+    var names = {
+      0x8002: "Average RMS Voltage above Average RMS Over Voltage Threshold (current value above threshold; previous value below threshold)",
+      0x8003: "Average RMS Voltage above Average RMS Over Voltage Threshold  on Phase 1 (current value above threshold; previous value below threshold)",
+      0x8004: "Average RMS Voltage above Average RMS Over Voltage Threshold  on Phase 2 (current value above threshold; previous value below threshold)",
+      0x8005: "Average RMS Voltage above Average RMS Over Voltage Threshold  on Phase 3 (current value above threshold; previous value below threshold)",
+      0x8006: "Average RMS Voltage below Average RMS Under Voltage Threshold (current value below threshold; previous value above threshold)",
+      0x8007: "Average RMS Voltage below Average RMS Under Voltage Threshold on Phase 1 (current value below threshold; previous value above threshold)",
+      0x8008: "Average RMS Voltage below Average RMS Under Voltage Threshold on Phase 2 (current value below threshold; previous value above threshold)",
+      0x8009: "Average RMS Voltage below Average RMS Under Voltage Threshold on Phase 3 (current value below threshold; previous value above threshold)",
+      0x8010: "Over Current",
+      0x8011: "Over Current L1",
+      0x8016: "Over Current L2",
+      0x8013: "Over Current L3",
+      0x8014: "Power Factor Threshold Below",
+      0x8015: "Power Factor Threshold Ok",
+      0x8020: "RMS Voltage above Extreme Over Voltage Threshold (voltage rises above for longer than the configurable period)",
+      0x8021: "RMS Voltage above Extreme Over Voltage Threshold on Phase 1 (voltage rises above for longer than the configurable period)",
+      0x8022: "RMS Voltage above Extreme Over Voltage Threshold on Phase 2 (voltage rises above for longer than the configurable period)",
+      0x8023: "RMS Voltage above Extreme Over Voltage Threshold on Phase 3 (voltage rises above for longer than the configurable period)",
+      0x8024: "RMS Voltage above Voltage Swell Threshold (voltage rises above for longer than the configurable period)",
+      0x8025: "RMS Voltage above Voltage Swell Threshold on Phase 1 (voltage rises above for longer than the configurable period)",
+      0x8026: "RMS Voltage above Voltage Swell Threshold on Phase 2 (voltage rises above for longer than the configurable period)",
+      0x8027: "RMS Voltage above Voltage Swell Threshold on Phase 3 (voltage rises above for longer than the configurable period)",
+      0x8028: "RMS Voltage below Extreme Under Voltage Threshold (voltage falls below for longer than the configurable period)",
+      0x8029: "RMS Voltage below Extreme Under Voltage Threshold on Phase 1 (voltage falls below for longer than the configurable period)",
+      0x802A: "RMS Voltage below Extreme Under Voltage Threshold on Phase 2 (voltage falls below for longer than the configurable period)",
+      0x802B: "RMS Voltage below Extreme Under Voltage Threshold on Phase 3 (voltage falls below for longer than the configurable period)",
+      0x802C: "RMS Voltage below Voltage Sag Threshold (voltage falls below for longer than the configurable period)",
+      0x802D: "RMS Voltage below Voltage Sag Threshold on Phase 1 (voltage falls below for longer than the configurable period)",
+      0x802E: "RMS Voltage below Voltage Sag Threshold on Phase 2 (voltage falls below for longer than the configurable period)",
+      0x802F: "RMS Voltage below Voltage Sag Threshold on Phase 3 (voltage falls below for longer than the configurable period)",
+      0x8071: "GPF Device Log Changed",
+      0x8085: "Average RMS Voltage below Average RMS Over Voltage Threshold (current value below threshold; previous value above threshold)",
+      0x8086: "Average RMS Voltage below Average RMS Over Voltage Threshold on Phase 1 (current value below threshold; previous value above threshold)",
+      0x8087: "Average RMS Voltage below Average RMS Over Voltage Threshold on Phase 2 (current value below threshold; previous value above threshold)",
+      0x8088: "Average RMS Voltage below Average RMS Over Voltage Threshold on Phase 3 (current value below threshold; previous value above threshold)",
+      0x8089: "Average RMS Voltage above Average RMS Under Voltage Threshold (current value above threshold; previous value below threshold)",
+      0x808A: "Average RMS Voltage above Average RMS Under Voltage Threshold on Phase 1 (current value above threshold; previous value below threshold)",
+      0x808B: "Average RMS Voltage above Average RMS Under Voltage Threshold on Phase 2 (current value above threshold; previous value below threshold)",
+      0x808C: "Average RMS Voltage above Average RMS Under Voltage Threshold on Phase 3 (current value above threshold; previous value below threshold)",
+      0x808D: "RMS Voltage above Extreme Over Voltage Threshold (voltage returns below for longer than the configurable period)",
+      0x808E: "RMS Voltage above Extreme Over Voltage Threshold on Phase 1 (voltage returns below for longer than the configurable period)",
+      0x808F: "RMS Voltage above Extreme Over Voltage Threshold on Phase 2 (voltage returns below for longer than the configurable period)",
+      0x8090: "RMS Voltage above Extreme Over Voltage Threshold on Phase 3 (voltage returns below for longer than the configurable period)",
+      0x8091: "RMS Voltage above Voltage Swell Threshold (voltage returns below for longer than the configurable period)",
+      0x8092: "RMS Voltage above Voltage Swell Threshold on Phase 1 (voltage returns below for longer than the configurable period)",
+      0x8093: "RMS Voltage above Voltage Swell Threshold on Phase 2 (voltage returns below for longer than the configurable period)",
+      0x8094: "RMS Voltage above Voltage Swell Threshold on Phase 3 (voltage returns below for longer than the configurable period)",
+      0x8095: "RMS Voltage below Extreme Under Voltage Threshold (voltage returns above for longer than the configurable period)",
+      0x8096: "RMS Voltage below Extreme Under Voltage Threshold on Phase 1 (voltage returns above for longer than the configurable period)",
+      0x8097: "RMS Voltage below Extreme Under Voltage Threshold on Phase 2 (voltage returns above for longer than the configurable period)",
+      0x8098: "RMS Voltage below Extreme Under Voltage Threshold on Phase 3 (voltage returns above for longer than the configurable period)",
+      0x8099: "RMS Voltage below Voltage Sag Threshold (voltage returns above for longer than the configurable period)",
+      0x809A: "RMS Voltage below Voltage Sag Threshold on Phase 1 (voltage returns above for longer than the configurable period)",
+      0x809B: "RMS Voltage below Voltage Sag Threshold on Phase 2 (voltage returns above for longer than the configurable period)",
+      0x809C: "RMS Voltage below Voltage Sag Threshold on Phase 3 (voltage returns above for longer than the configurable period)",
+      0x810D: "Combined Credit Below Low Credit Threshold (prepayment mode)",
+      0x810E: "Credit Added Locally",
+      0x8119: "Emergency Credit Has Become Available (prepayment mode)",
+      0x8154: "Immediate HAN Interface Command Received and Successfully Actioned",
+      0x8155: "Immediate HAN Interface Command Received but not Successfully Actioned",
+      0x8168: "Supply Disabled then Armed - Activate Emergency Credit triggered",
+      0x8183: "Device joined SMHAN",
+      0x8184: "Valve tested",
+      0x819D: "GSME Command Not Retrieved",
+      0x819E: "Tap Off Message Response or Alert Failure",
+      0x81A0: "Smart Meter Integrity Issue - Warning",
+      0x81A1: "Battery Cover Closed",
+      0x81A2: "CH Connected to ESME",
+      0x81A3: "CH Disconnected from ESME",
+      0x81A4: "Close Tunnel Command Rejected",
+      0x81A5: "Communication From Local Port (e.g. Optical)",
+      0x81A6: "Customer Acknowledged Message on HAN Device",
+      0x81A7: "Debt Collection Completed - Time Debt 1",
+      0x81A8: "Debt Collection Completed - Time Debt 2",
+      0x81A9: "Debt Collection Completed - Payment Debt",
+      0x81AA: "Emergency Credit Exhausted",
+      0x81AB: "Emergency Credit Activated",
+      0x81AC: "Error Measurement Fault",
+      0x81AD: "Error Metrology Firmware Verification Failure",
+      0x81AE: "Error Non Volatile Memory",
+      0x81AF: "Error Program Execution",
+      0x81B0: "Error Program Storage",
+      0x81B1: "Error RAM",
+      0x81B2: "Error Unexpected Hardware Reset",
+      0x81B3: "Error Watchdog ",
+      0x81B4: "Excess Gas Flow Beyond Meter Capacity",
+      0x81B5: "Flow Sensor Detects Air in Gas Flow",
+      0x81B6: "Flow Sensor Detects Reverse Flow of Gas",
+      0x81B7: "Incorrect phase sequencing",
+      0x81B8: "Incorrect Polarity",
+      0x81B9: "Meter Cover Closed",
+      0x81BA: "Request Tunnel Command Rejected",
+      0x81BB: "Reverse Current",
+      0x81BC: "Strong Magnetic Field Removed",
+      0x81BD: "Supply Connect Failure (Valve or Load Switch)",
+      0x81BE: "Supply Disabled Then Locked - Supply Tamper State Cause",
+      0x81BF: "Supply Disabled Then Armed - Uncontrolled Gas Flow Rate",
+      0x81C0: "Supply Disconnect Failure (Valve or Load Switch)",
+      0x81C1: "Terminal Cover Closed",
+      0x81C2: "Tilt Tamper Ended",
+      0x81C3: "Tilt Tamper",
+      0x81C4: "UTRN Manual Entry Suspended",
+      0x81C5: "UTRN rejected as locked out",
+      0x81C6: "Clock not adjusted (outside tolerance)",
+      0x8F01: "Active Power Import above Load Limit Threshold",
+      0x8F0A: "Billing Data Log Updated",
+      0x8F0C: "Clock not adjusted (adjustment greater than 10 seconds)",
+      0x8F0F: "Credit Below Disablement Threshold (prepayment mode)",
+      0x8F12: "CHF Device Log Changed",
+      0x8F1B: "Firmware Verification Failed At Power On",
+      0x8F1C: "Firmware Verification Failed",
+      0x8F1D: "GSME Power Supply Loss",
+      0x8F1E: "Integrity check of content or format of command failed",
+      0x8F1F: "Low Battery Capacity",
+      0x8F20: "Limited Duty Cycle Action Taken",
+      0x8F21: "Duty Cycle fallen below Normal-Limited Duty Cycle Threshold",
+      0x8F22: "Critical Duty Cycle Action Taken",
+      0x8F23: "Duty Cycle fallen below Limited-Critical Duty Cycle Threshold",
+      0x8F24: "Regulated Duty Cycle Action Taken",
+      0x8F25: "Duty Cycle fallen below Critical-Regulated Duty Cycle Threshold",
+      0x8F26: "Sub GHz Channel Changed",
+      0x8F27: "Sub GHz Channel Scan initiated",
+      0x8F28: "Sub GHz Channel Scan Request Assessment Outcome",
+      0x8F29: "Three Lost GSME Searches Failed",
+      0x8F2A: "Sub GHz Configuration Changed",
+      0x8F2B: "Sub GHz Channel not changed due to Frequency Agility Parameters",
+      0x8F2C: "Message Discarded Due to Duty Cycle Management",
+      0x8F2D: "No More Sub GHz Device Capacity",
+      0x8F30: "Source Does not have Authority for Command",
+      0x8F32: "Supply Armed",
+      0x8F33: "Supply Disabled then Armed - Load Limit triggered",
+      0x8F34: "Supply Enabled after Load Limit Restoration Period (Load Limit triggered)",
+      0x8F35: "Supply Outage Restored",
+      0x8F36: "Supply Outage Restored - Outage >= 3 minutes",
+      0x8F37: "Supply Outage Restored on Phase 1",
+      0x8F38: "Supply Outage Restored on Phase 1 Restored - Outage >= 3 minutes",
+      0x8F39: "Supply Outage Restored on Phase 2 Restored",
+      0x8F3A: "Supply Outage Restored on Phase 2 Restored - Outage >= 3 minutes",
+      0x8F3B: "Supply Outage Restored on Phase 3 Restored",
+      0x8F3C: "Supply Outage Restored on Phase 3 Restored - Outage >= 3 minutes",
+      0x8F3D: "Trusted Source Authentication Failure",
+      0x8F3E: "Unauthorised Communication Access attempted",
+      0x8F3F: "Unauthorised Physical Access - Tamper Detect",
+      0x8F43: "Change in the executing Firmware version",
+      0x8145: "Clock adjusted (within tolerance)",
+      0x8F47: "Credit would cause Meter Balance to exceed  Maximum Meter Balance Threshold",
+      0x8F48: "Device joining failed",
+      0x8F49: "Device joining succeeded ",
+      0x8F4A: "Device Unjoining failed ",
+      0x8F4B: "Device Unjoining succeeded ",
+      0x8F4C: "Device's own Digital Signing Certificate replacement failed",
+      0x8F4D: "Device's own Digital Signing Certificate replacement succeeded",
+      0x8F4E: "Device's own Key Agreement Certificate replacement failed",
+      0x8F4F: "Device's own Key Agreement Certificate replacement succeeded",
+      0x8F51: "Duplicate UTRN entered",
+      0x8F52: "Event Log Cleared",
+      0x8F53: "Failed Authentication or Authorisation not covered by other codes",
+      0x8F57: "Supply interrupted",
+      0x8F58: "Supply interrupted on Phase 1",
+      0x8F59: "Supply interrupted on Phase 2",
+      0x8F5A: "Supply interrupted on Phase 3",
+      0x8F5B: "UTRN exceeds Maximum Credit Threshold",
+      0x8F60: "Unusual numbers of malformed, out-of-order or unexpected Commands received",
+      0x8161: "User Interface Command Input and Successfully Actioned",
+      0x8162: "User Interface Command Input but not Successfully Actioned",
+      0x8F63: "UTRN not Authentic",
+      0x8F64: "UTRN not for this Device",
+      0x8F66: "Future-date HAN Interface Command Successfully Actioned",
+      0x8F67: "Future-date HAN Interface Command not Successfully Actioned",
+      0x8F69: "Device commissioned",
+      0x8F70: "Update Security Credentials ",
+      0x8F72: "Firmware Verification Successful",
+      0x8F73: "Unauthorised Physical Access - Battery Cover Removed",
+      0x8F74: "Unauthorised Physical Access - Meter Cover Removed",
+      0x8F75: "Unauthorised Physical Access - Strong Magnetic field",
+      0x8F76: "Unauthorised Physical Access - Terminal Cover Removed",
+      0x8F77: "Unauthorised Physical Access - Second Terminal Cover Removed",
+      0x8F78: "Unauthorised Physical Access - Other",
+      0x8F82: "Remaining Battery Capacity reset",
+      0x8F83: "Disablement of Supply due to insufficient credit has been suspended ",
+      0x8F84: "Failure to Deliver Remote Party Message to ESME",
+    };
+    return names[alertCode];
+  }
+
   // ASN.1 DER Payloads
 
   // CS02a Provide Security Credentials
@@ -595,7 +782,7 @@ function parseGbcsMessage(text) {
 
   function parseUpdateSecurityCredentialsAlert(x) {
     var s = parseSequence(x, "Update Security Credentials Alert");
-    parseInteger(s, "Alert Code");
+    parseAsn1AlertCode(s);
     parseGeneralizedTime(s, "Execution Date Time");
     parseUpdateSecurityCredentialsExecutionOutcome(s);
   }
@@ -610,7 +797,7 @@ function parseGbcsMessage(text) {
 
   function parseReplacementOutcome(x) {
     var s = parseSequence(x, "Replacement Outcome");
-    parseTrustAnchorCellIdentifier(s);
+    parseTrustAnchorCellIdentifier(s, "Affected Trust Anchor Cell");
     parseStatusCode(s);
     parseDerOctetString(s, "Existing Subject Unique ID");
     parseDerOctetString(s, "Existing Subject Key ID");
@@ -731,7 +918,7 @@ function parseGbcsMessage(text) {
 
   function parseActivateFirmwareAlert(x) {
     var s = parseSequence(x, "Activate Firmware Alert");
-    parseInteger(s, "Alert Code");
+    parseAsn1AlertCode(s);
     parseGeneralizedTime(s, "Execution Date Time");
     parseSeqNumber(s, "Originator Counter");
     parseActivateFirmwareExecutionOutcome(s);
@@ -813,7 +1000,7 @@ function parseGbcsMessage(text) {
 
   function parseGpfDeviceLogBackupAlert(x) {
     var s = parseSequence(x, "GPF Device Log Backup Alert");
-    parseInteger(s, "Alert Code");
+    parseAsn1AlertCode(s);
     parseGeneralizedTime(s, "Backup Date Time");
     parseSequenceOf(s, "Device Log Entries", parseDeviceLogEntry);
   }
@@ -996,6 +1183,14 @@ function parseGbcsMessage(text) {
     putBytes(name, getBytes(x, 2 + length), values && values[value] || value);
   }
 
+  function parseAsn1AlertCode(x) {
+    var alertCode = 0;
+    var length = x.input[x.index + 1];
+    for (var i = 0; i < length; i++)
+      alertCode = alertCode * 256 + x.input[x.index + 2 + i];
+    putBytes("Alert Code", getBytes(x, 2 + length), getAlertCodeName(alertCode));
+  }
+
   function parseEnumerated(x, name, values) {
     parseInteger(x, name, values);
   }
@@ -1053,7 +1248,7 @@ function parseGbcsMessage(text) {
 
   function parseDlmsDataNotificationGbcsAlert(x) {
     putBytes("DLMS Data Notification", getBytes(x, 8));
-    parseDlmsLongUnsigned(x, "Alert Code");
+    parseDlmsAlertCode(x);
     parseDlmsOctetString(x, "Time Stamp");
     while (x.index < x.end) {
       parseDlmsData(x);
@@ -1193,6 +1388,11 @@ function parseGbcsMessage(text) {
   function parseDlmsLongUnsigned(x, name) {
     var value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
     putBytes(name, getBytes(x, 3), value);
+  }
+
+  function parseDlmsAlertCode(x) {
+    var alertCode = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+    putBytes("Alert Code", getBytes(x, 3), getAlertCodeName(alertCode));
   }
 
   function parseDlmsCompactArray(x, name, indent) {
@@ -1558,7 +1758,7 @@ function parseGbcsMessage(text) {
   function parseGbzAlertPayload(x){
     putBytes("Profile ID", getBytes(x, 2));
     putBytes("Number of GBZ components", getBytes(x, 1));
-    putBytes("Alert Code", getBytes(x, 2));
+    parseGbzAlertCode(x);
     parseGbzTime(x, "Time Stamp");
     if (x.index < x.end) {
       putBytes("GBZ Use Case Specific Components", x);
@@ -1568,7 +1768,7 @@ function parseGbcsMessage(text) {
   function parseGbzGcs53AlertPayload(x) {
     putBytes("Profile ID", getBytes(x, 2));
     putBytes("Number of GBZ components", getBytes(x, 1));
-    putBytes("Alert Code", getBytes(x, 2));
+    parseGbzAlertCode(x);
     parseGbzTime(x, "Time Stamp");
     parseGbzComponent(x);
   }
@@ -1589,6 +1789,11 @@ function parseGbcsMessage(text) {
     var url = "https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html#" + arrayToHex(x.input);
     x.input[x.index] ^= 0x02;
     return getLink(name, url);
+  }
+  
+  function parseGbzAlertCode(x) {
+	var alertCode = x.input[x.index] << 8 | x.input[x.index + 1];
+	putBytes("Alert Code", getBytes(x, 2), getAlertCodeName(alertCode));
   }
 
   function parseGbzComponent(x) {
