@@ -1790,7 +1790,7 @@ function parseGbcsMessage(text) {
     x.input[x.index] ^= 0x02;
     return getLink(name, url);
   }
-  
+
   function parseGbzAlertCode(x) {
 	var alertCode = x.input[x.index] << 8 | x.input[x.index + 1];
 	putBytes("Alert Code", getBytes(x, 2), getAlertCodeName(alertCode));
@@ -2486,7 +2486,7 @@ function parseGbcsMessage(text) {
   function parseZseGetSpecialDays(x) {
     parseZclUtcTime(x, "Start Time");
     parseZclUint(8, x, "Number of Events");
-    parseZclUint(8, x, "Calendar Type");
+    parseZclCalendarUint(8, x, "Calendar Type");
     parseZclUint(32, x, "Provider Id");
     parseZclUint(32, x, "Issuer Calendar Id");
   }
@@ -2496,7 +2496,7 @@ function parseGbcsMessage(text) {
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUint(32, x, "Issuer Calendar Id");
     parseZclUtcTime(x, "Start Time");
-    parseZclUint(8, x, "Calendar Type");
+    parseZclCalendarUint(8, x, "Calendar Type");
     parseZclUint(8, x, "Calendar Time Reference");
     parseZclOctetString(x, "Calendar Name");
     parseZclUint(8, x, "Number of Seasons");
@@ -2512,7 +2512,7 @@ function parseGbcsMessage(text) {
     var entries = parseZclUint(8, x, "Number of Schedule Entries");
     parseZclUint(8, x, "Command Index");
     parseZclUint(8, x, "Number of Commands");
-    parseZclUint(8, x, "Calendar Type");
+    var calendarType = parseZclCalendarUint(8, x, "Calendar Type");
     for (var i = 1; i <= entries; i++) {
       var dec = x.input[x.index] + x.input[x.index + 1] * 256;
       var hour = Math.floor(dec / 60);
@@ -2523,7 +2523,10 @@ function parseGbcsMessage(text) {
         minute = "0" + minute;
       var time = "" + hour + ":" + minute;
       putBytes("Schedule Entry " + i + " Start Time", getBytes(x, 2), time);
-      parseZclUint(8, x, "Schedule Entry " + i + " Friendly Credit Enable");
+      if (calendarType == 0x00)
+        parseZclUint(8, x, "Price Tier " + i);
+      else
+        parseZclUint(8, x, "Friendly Credit Enable " + i);
     }
   }
 
@@ -2552,7 +2555,7 @@ function parseGbcsMessage(text) {
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUint(32, x, "Issuer Calendar Id");
     parseZclUtcTime(x, "Start Time");
-    parseZclUint(8, x, "Calendar Type");
+    parseZclCalendarUint(8, x, "Calendar Type");
     var numberOfSpecialDays = parseZclUint(8, x, "Number of Special Days");
     parseZclUint(8, x, "Command Index");
     parseZclUint(8, x, "Number of Commands");
@@ -2672,6 +2675,27 @@ function parseGbcsMessage(text) {
     }
     putBytes(name, getBytes(x, bytes), value);
     return value;
+  }
+
+  function getCalendarTypeName(/*int*/ calendarType) {
+    var names = {
+      0x00: "Delivered Calendar",
+      0x01: "Received Calendar",
+      0x02: "Delivered and Received Calendar",
+      0x03: "Friendly Credit Calendar",
+      0x04: "Auxiliary Load Switch Calendar",
+    };
+    if (calendarType <= 0x04)
+        return names[calendarType];
+    else
+        return "Reserved"
+  }
+
+  function parseZclCalendarUint(bits, x, name) {
+    var bytes = bits / 8; //useless
+    var calendarType = x.input[x.index];
+    putBytes(name, getBytes(x, bytes), getCalendarTypeName(calendarType));
+    return calendarType;
   }
 
   function parseZclInt32(x, name) {
