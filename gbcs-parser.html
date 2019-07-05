@@ -1255,19 +1255,19 @@ function parseGbcsMessage(text) {
     }
   }
 
-  function parseDlmsAccessRequestSpecification(x) {
+  function parseDlmsAccessRequestSpecification(x, idx) {
     var choice = x.input[x.index];
     if (choice == 1) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get");
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get " + idx);
       parseDlmsCosemAttributeDescriptor(x);
     } else if (choice == 2) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Set");
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Set " + idx);
       parseDlmsCosemAttributeDescriptor(x);
     } else if (choice == 3) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Action");
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Action " + idx);
       parseDlmsCosemMethodDescriptor(x);
     } else if (choice == 4) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get with Selection");
+      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get with Selection " + idx);
       parseDlmsCosemAttributeDescriptor(x);
       parseDlmsSelectiveAccessDescriptor(x);
     } else {
@@ -1275,16 +1275,16 @@ function parseGbcsMessage(text) {
     }
   }
 
-  function parseDlmsAccessResponseSpecification(x) {
+  function parseDlmsAccessResponseSpecification(x, idx) {
     var choice = x.input[x.index];
     if (choice == 1) {
-      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Get");
+      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Get " + idx);
       parseDlmsDataAccessResult(x);
     } else if (choice == 2) {
-      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Set");
+      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Set " + idx);
       parseDlmsDataAccessResult(x);
     } else if (choice == 3) {
-      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Action");
+      putBytes("Access Response Specification", getBytes(x, 1), "Access Response Action " + idx);
       parseDlmsActionResult(x);
     } else {
       throw "TODO: Access-Response-Specification CHOICE " + choice;
@@ -1295,7 +1295,7 @@ function parseGbcsMessage(text) {
     var n = x.input[x.index];
     putBytes(name, getBytes(x, 1));
     for (var i = 0; i < n; i++) {
-      parse(x);
+      parse(x, "[" + i + "] ");
     }
   }
 
@@ -1679,7 +1679,10 @@ function parseGbcsMessage(text) {
            + x.input[x.index + 3] * 0x10000
            + x.input[x.index + 4] * 0x100
            + x.input[x.index + 5];
-    var name = formatObis(x) + " - " + cosemClass.instances[id];
+    var cosemInstance = cosemClass.instances[id];
+    var name = formatObis(x)
+    if (cosemInstance != undefined)
+      name = name + " - " + cosemInstance;
     putBytes("Instance Id", getBytes(x, 6), name);
   }
 
