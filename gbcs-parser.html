@@ -57,7 +57,14 @@ function parseGbcsMessage(text) {
     if (x.input[1] == 0x00) {
       parseGeneralCiphering(x);
     } else {
-      parseGeneralBlockTransfer(x);
+      var gbt = [];
+      do {
+        var block = parseGeneralBlockTransfer(x);
+        if (block.number > 0) {
+          gbt[block.number - 1] = block;
+        }
+      } while (x.index < x.end);
+      processGeneralBlockTransfer(gbt);
     }
   } else {
     parseGeneralSigning(x);
@@ -106,6 +113,11 @@ function parseGbcsMessage(text) {
     return y;
   }
 
+  function peekBytes(x, n) {
+    var y = { input: x.input, index: x.index, end: x.index + n };
+    return y;
+  }
+
   function getLink(name, loc) {
     return "<a href=\"" + loc + "\">" + name + "</a>";
   }
@@ -146,7 +158,47 @@ function parseGbcsMessage(text) {
     var blockNumberAck = x.input[x.index] * 256 + x.input[x.index + 1];
     putBytes("Block Number Ack", getBytes(x, 2), blockNumberAck);
     var blockDataLen = parseEncodedLength(x, "Block Data Length");
+    var blockData = peekBytes(x, blockDataLen);
     putBytes("Block Data", getBytes(x, blockDataLen));
+    return { last: lastBlock, streaming: streaming, window: window, number: blockNumber, ack: blockNumberAck, data: blockData, len: blockDataLen };
+  }
+
+  function processGeneralBlockTransfer(gbt) {
+    // find last block
+    var last = -1;
+    for (var i = 0; i < gbt.length; i++) {
+      if (gbt[i] && gbt[i].last != 0) {
+        last = i;
+      }
+    }
+    // check if all blocks present
+    var allBlocks = true;
+    for (var i = 0; i <= last; i++) {
+      if (gbt[i] == undefined) {
+        allBlocks = false;
+        break;
+      }
+    }
+    if (last >= 0 && allBlocks) {
+      var totalLen = 0;
+      gbt.forEach(block => {
+        totalLen += block.len;
+      });
+      var full = "";
+      for (var index = 0; index < gbt.length; index++) {
+        var block = gbt[index];
+        var h = "0123456789ABCDEF";
+        for (var i = block.data.index; i < block.data.end; i++) {
+          var b = block.data.input[i];
+          full += h.charAt((b >> 4) & 15) + h.charAt(b & 15);
+        }
+        if (block.last != 0) {
+          break;
+        }
+      }
+      putSeparator("GBT Reconstructed Data");
+      output += parseGbcsMessage(full);
+    }
   }
 
   function parseGeneralSigning(x) {
