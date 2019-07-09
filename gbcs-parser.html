@@ -184,7 +184,7 @@ function parseGbcsMessage(text) {
         break;
       }
     }
-    if (last >= 0 && allBlocks) {
+    if (last > 0 && allBlocks) {
       var totalLen = 0;
       gbt.forEach(block => {
         totalLen += block.len;
