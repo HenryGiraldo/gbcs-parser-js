@@ -1520,7 +1520,7 @@ function parseGbcsMessage(text) {
     if (choice == 1) {  // array
       var numberOfElements = x.input[index + 1] * 256 + x.input[x.index + 2];
       typeDescriptionLength += 2;
-      typeDescriptionLength += numberOfElements * parseDlmsTypeDescription(x, index + typeDescriptionLen);
+      typeDescriptionLength += numberOfElements * parseDlmsTypeDescription(x, index + typeDescriptionLength);
     } else if (choice == 2) {  // structure
       var n = x.input[x.index + 1];
       typeDescriptionLength += 1;
