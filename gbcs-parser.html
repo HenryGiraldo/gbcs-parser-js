@@ -225,7 +225,7 @@ function parseGbcsMessage(text) {
         if (otherInfoLen == 26) {
           parseCounter("Supplementary Originator Counter", otherInfo);
         } else if (otherInfoLen > 26) {
-          putBytes("Supplementary Remote Party Key Agreement Certificate", otherInfo);
+          parseCertificate(otherInfo, "Supplementary Remote Party Key Agreement Certificate");
         }
       }
     }
@@ -1195,7 +1195,7 @@ function parseGbcsMessage(text) {
     return getLink(name, url);
   }
 
-  function parseCertificate(x) {
+  function parseCertificate(x, name) {
     var length = x.input[x.index + 1];
     var header = 2;
     if (length == 0x81) {
@@ -1206,7 +1206,7 @@ function parseGbcsMessage(text) {
       header = 4;
     }
     var decoder = getCertificateDecoder("Decode certificate", x, header + length);
-    putBytes("Certificate", getBytes(x, header + length), decoder);
+    putBytes(name || "Certificate", getBytes(x, header + length), decoder);
   }
 
   // ASN.1 Types
