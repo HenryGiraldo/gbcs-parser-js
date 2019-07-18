@@ -129,7 +129,10 @@ function parseGbcsMessage(text) {
     return y;
   }
 
-  function getLink(name, loc) {
+  function getLink(name, loc, klass) {
+    if (klass) {
+      return "<a class=\"" + klass + "\" href=\"" + loc + "\">" + name + "</a>";
+    }
     return "<a href=\"" + loc + "\">" + name + "</a>";
   }
 
@@ -203,7 +206,7 @@ function parseGbcsMessage(text) {
           break;
         }
       }
-      putSeparator("<a class=\"plain\" href=\"#" + full + "\">GBT Reconstructed Data</a>");
+      putSeparator(getLink("GBT Reconstructed Data", "#" + full, "plain"));
       output += parseGbcsMessage(full);
     }
   }
@@ -215,8 +218,7 @@ function parseGbcsMessage(text) {
     parseCounter("Originator Counter", x);
     putBytes("Originator System Title", getBytes(x, 9));
     putBytes("Recipient System Title", getBytes(x, 9));
-    var dateTimeLen = x.input[x.index];
-    putBytes("Date Time", getBytes(x, 1 + dateTimeLen));
+    parseDlmsOctetString(x, "Date Time", true);
     var otherInfoLen = parseEncodedLength(x, "Other Information Length");
     var otherInfo = getBytes(x, otherInfoLen);
     var messageCode = parseMessageCode(otherInfo);
@@ -1957,7 +1959,7 @@ function parseGbcsMessage(text) {
 
   function getSwappedFrame(name, x) {
     x.input[x.index] ^= 0x02;
-    var url = "https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html#" + arrayToHex(x.input);
+    var url = "gbcs-parser.html#" + arrayToHex(x.input);
     x.input[x.index] ^= 0x02;
     return getLink(name, url);
   }
