@@ -1418,7 +1418,10 @@ function parseGbcsMessage(text) {
     }
   }
 
-  function parseDlmsBitString(x, name) {
+  function parseDlmsBitString(x, name, firstSkipped) {
+    if (firstSkipped) {
+      x.index--;
+    }
     var bitlen = x.input[x.index + 1];
     var bytelen = 2;
     if (bitlen == 0x81) {
@@ -1429,6 +1432,10 @@ function parseGbcsMessage(text) {
       bytelen += 2;
     }
     bytelen += Math.floor((bitlen + 7) / 8);
+    if (firstSkipped) {
+      x.index++;
+      bytlen--;
+    }
     putBytes(name, getBytes(x, bytelen));
   }
 
@@ -1533,7 +1540,10 @@ function parseGbcsMessage(text) {
   }
 
 
-  function parseDlmsOctetString(x, name) {
+  function parseDlmsOctetString(x, name, firstSkipped) {
+    if (firstSkipped) {
+      x.index--;
+    }
     var len = x.input[x.index + 1];
     if (len == 0x81) {
       len = 1 + x.input[x.index + 2];
@@ -1542,13 +1552,15 @@ function parseGbcsMessage(text) {
     }
     if (len == 5) {
       var date = getDlmsDate(x);
-      putBytes(name, getBytes(x, 2 + len), date);
     } else if (len == 12) {
       var date = getDlmsLongDate(x);
-      putBytes(name, getBytes(x, 2 + len), date);
-    } else {
-      putBytes(name, getBytes(x, 2 + len));
     }
+    var offset = 2;
+    if (firstSkipped) {
+        x.index++;
+        offset--;
+    }
+    putBytes(name, getBytes(x, offset + len), date);
   }
 
   function parseDlmsLongUnsigned(x, name) {
@@ -1566,34 +1578,131 @@ function parseGbcsMessage(text) {
       indent = "";
     }
     putBytes(name, getBytes(x, 1));
-    var typeDescriptionLen = parseDlmsTypeDescription(x, x.index);
-    putBytes(indent + " Type Description", getBytes(x, typeDescriptionLen));
-    var arrayContentsLen = x.input[x.index];
-    if (arrayContentsLen == 0x81) {
-      arrayContentsLen = 2 + x.input[x.index + 1];
-    } else if (arrayContentsLen == 0x82) {
-      arrayContentsLen = 3 + x.input[x.index + 1] * 256 + x.input[x.index + 2];
-    } else {
-      arrayContentsLen += 1;
-    }
-    putBytes(indent + " Contents", getBytes(x, arrayContentsLen));
+    putBytes(indent + " Type Description", getBytes(x, 0));
+    var typeDescription = parseDlmsTypeDescription(x, indent + "  ");
+    parseDlmsCompactArrayContents(indent + " ", x, typeDescription);
   }
 
-  function parseDlmsTypeDescription(x, index) {
-    var typeDescriptionLength = 1;
-    var choice = x.input[index];
+  function parseDlmsTypeDescription(x, indent) {
+    var choice = x.input[x.index];
+    var typeDescription = { choice: choice, children: null };
     if (choice == 1) {  // array
-      //var numberOfElements = x.input[index + 1] * 256 + x.input[index + 2];
-      typeDescriptionLength += 2;
-      typeDescriptionLength += parseDlmsTypeDescription(x, index + typeDescriptionLength);
+      var numberOfElements = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      putBytes(indent + "Array of " + numberOfElements, getBytes(x, 3));
+      var t = parseDlmsTypeDescription(x, indent + " ");
+      typeDescription.children = { number: numberOfElements, type: t };
     } else if (choice == 2) {  // structure
-      var n = x.input[index + 1];
-      typeDescriptionLength += 1;
+      var n = x.input[x.index + 1];
+      putBytes(indent + "Structure", getBytes(x, 2));
+      typeDescription.children = [];
       for (var i = 0; i < n; i++) {
-        typeDescriptionLength += parseDlmsTypeDescription(x, index + typeDescriptionLength);
+        var t = parseDlmsTypeDescription(x, indent + " ");
+        typeDescription.children.push(t);
       }
+    } else if (choice == 3) { // boolean
+      putBytes(indent + "Boolean", getBytes(x, 1));
+    } else if (choice == 4) { // bit-string
+      putBytes(indent + "Bit-String", getBytes(x, 1));
+    } else if (choice == 5) { // double-long
+      putBytes(indent + "Double Long", getBytes(x, 1));
+    } else if (choice == 6) { // double-long-unsigned
+      putBytes(indent + "Double Long Unsigned", getBytes(x, 1));
+    } else if (choice == 9) { // octet-string
+      putBytes(indent + "Octet String", getBytes(x, 1));
+    } else if (choice == 10) { // visible-string
+      putBytes(indent + "Visible String", getBytes(x, 1));
+    } else if (choice == 15) { // integer
+      putBytes(indent + "Integer", getBytes(x, 1));
+    } else if (choice == 16) { // long
+      putBytes(indent + "Long", getBytes(x, 1));
+    } else if (choice == 17) { // unsigned
+      putBytes(indent + "Unsigned", getBytes(x, 1));
+    } else if (choice == 18) { // long-unsigned
+      putBytes(indent + "Long Unsigned", getBytes(x, 1));
+    } else if (choice == 22) { // enum
+      putBytes(indent + "Enum", getBytes(x, 1));
+    } else {
+      putBytes(indent + "Unknown", getBytes(x, 1), "TODO");
     }
-    return typeDescriptionLength;
+    return typeDescription;
+  }
+
+  function parseDlmsCompactArrayContents(indent, x, typeDescription) {
+    var arrayContentsLen = x.input[x.index];
+    var bytes = 1;
+    if (arrayContentsLen == 0x81) {
+      arrayContentsLen = x.input[x.index + 1];
+      bytes = 2;
+    } else if (arrayContentsLen == 0x82) {
+      arrayContentsLen = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      bytes = 3;
+    }
+    putBytes(indent + "Contents", getBytes(x, bytes));
+    var contents = getBytes(x, arrayContentsLen);
+    var index = 0;
+    while (contents.index < contents.end) {
+      // put each element of the array according to the type description
+      parseDlmsTypeDescriptionContentsData(indent + "[" + index + "] ", contents, typeDescription);
+      index++;
+    }
+  }
+
+  function parseDlmsTypeDescriptionContentsData(indent, x, typeDescription) {
+    var choice = typeDescription.choice;
+      if (choice == 1) { // array
+        var n = typeDescription.children.number;
+        var t = typeDescription.children.type;
+        putBytes(indent + "Array", getBytes(x, 0), n + " elements")
+        for (var i = 0; i < n; i++) {
+          parseDlmsTypeDescriptionContentsData(indent + " ", x, t);
+        }
+      } else if (choice == 2) { // structure
+        var n = typeDescription.children.length;
+        putBytes(indent + "Structure", getBytes(x, 0))
+        for (var i = 0; i < n; i++) {
+          var t = typeDescription.children[i];
+          parseDlmsTypeDescriptionContentsData(indent + " ", x, t);
+        }
+      } else if (choice == 3) { // boolean
+        putBytes(indent + "Boolean", getBytes(x, 1));
+      } else if (choice == 4) { // bit-string
+        parseDlmsBitString(x, indent + "Bit String", true);
+      } else if (choice == 5) { // double-long
+        var value = x.input[x.index] * 0x1000000 + x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+        if (value > 0x7fffffff) {
+          value -= 0x100000000;
+        }
+        putBytes(indent + "Double Long", getBytes(x, 4), value);
+      } else if (choice == 6) { // double-long-unsigned
+        var value = x.input[x.index] * 0x1000000 + x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+        putBytes(indent + "Double Long Unsigned", getBytes(x, 4), value);
+      } else if (choice == 9) { // octet-string
+        parseDlmsOctetString(x, indent + "Octet String", true);
+      } else if (choice == 10) { // visible-string
+        parseDlmsOctetString(x, indent + "Visible String", true);
+      } else if (choice == 15) { // integer
+        var value = x.input[x.index];
+        if (value > 0x7f) {
+          value -= 0x100;
+        }
+        putBytes(indent + "Integer", getBytes(x, 1), value);
+      } else if (choice == 16) { // long
+        var value = x.input[x.index] * 256 + x.input[x.index + 1];
+        if (value > 0x7fff) {
+          value -= 0x10000;
+        }
+        putBytes(indent + "Long", getBytes(x, 2), value);
+      } else if (choice == 17) { // unsigned
+        var value = x.input[x.index];
+        putBytes(indent + "Unsigned", getBytes(x, 1), value);
+      } else if (choice == 18) { // long-unsigned
+        var value = x.input[x.index] * 256 + x.input[x.index + 1];
+        putBytes(indent + "Long Unsigned", getBytes(x, 2), value);
+      } else if (choice == 22) { // enum
+        putBytes(indent + "Enum", getBytes(x, 1));
+      } else {
+        throw "TODO: DLMS Data CHOICE (compact array)" + choice;
+      }
   }
 
   function parseDlmsCosemAttributeDescriptor(x) {
