@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <!--
   gbcs-parser.html - GBCS message parser
 
@@ -22,7 +23,8 @@
 <style>
 body { background-color: #fff; color: #000; font-family: monospace; }
 h1 { color: #009ee2; }
-a.plain, a.plain:visited { text-decoration: none; color: inherit; }
+a.plain { text-decoration: none; color: inherit; }
+a.plain:visited { color: inherit; }
 textarea { width: 100%; resize: vertical; }
 table { border-collapse: collapse; table-layout: fixed; width: 100%; }
 tr:nth-child(odd) { background-color: #f0f8ff; }
@@ -31,14 +33,14 @@ td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-spa
 </style>
 </head>
 <body>
-<h1><a class="plain" href="">GBCS Message Parser</a></h1>
+<h1><a class="plain" href="gbcs-parser.html">GBCS Message Parser</a></h1>
 <p><textarea id="textarea" rows="7" placeholder="Paste here the hex string of the GBCS message" autofocus></textarea>
-<p><button type=button onclick=parse()>Parse</button>
-<p><table id=table></table>
-<p>GBCS V3.1 Use Cases: <a href=https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html>https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html</a>
-<p>DLMS V3.1 Use Cases: <a href=https://henrygiraldo.github.io/gbcs-parser-js/dlms-use-cases.html>https://henrygiraldo.github.io/gbcs-parser-js/dlms-use-cases.html</a>
-<p>Source: <a href=https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html>https://github.com/henrygiraldo/gbcs-parser-js/gbcs-parser.html</a>
-<p>Original source: <a href=https://github.com/andrebdo/gbcs-parser-js>https://github.com/andrebdo/gbcs-parser-js</a>
+<p><button type="button" onclick="parse()">Parse</button>
+<p><table id="table"></table>
+<p>GBCS V3.1 Use Cases: <a href="https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html">https://henrygiraldo.github.io/gbcs-parser-js/gbcs-use-cases.html</a>
+<p>DLMS V3.1 Use Cases: <a href="https://henrygiraldo.github.io/gbcs-parser-js/dlms-use-cases.html">https://henrygiraldo.github.io/gbcs-parser-js/dlms-use-cases.html</a>
+<p>Source: <a href="https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html">https://github.com/henrygiraldo/gbcs-parser-js/gbcs-parser.html</a>
+<p>Original source: <a href="https://github.com/andrebdo/gbcs-parser-js">https://github.com/andrebdo/gbcs-parser-js</a>
 <script>
 
 monthsInYear = {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June",
@@ -49,12 +51,16 @@ daysInWeek = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday',
 function parse() {
     var table = document.getElementById("table");
     table.innerHTML = parseGbcsMessage(textarea.value);
-    try {
-        window.location.hash = hash = '#' + textarea.value.replace(/\s/g, '');
-    } catch (e) { // fails with longer than ~2048 chars in IE
+    hash = '#' + textarea.value.replace(/\s/g, '');
+    if (hash.length < 2000) {
+      try {
+        window.location.hash = hash;
+      } catch (e) {
         window.location.hash = hash = '#';
-    }
+      }
+    } // fails with longer than 2025 to 2050 chars in IE/Edge
 }
+
 function parseGbcsMessage(text) {
   var output = "";
   var x = parseHexString(text);
@@ -123,7 +129,10 @@ function parseGbcsMessage(text) {
     return y;
   }
 
-  function getLink(name, loc) {
+  function getLink(name, loc, klass) {
+    if (klass) {
+      return "<a class=\"" + klass + "\" href=\"" + loc + "\">" + name + "</a>";
+    }
     return "<a href=\"" + loc + "\">" + name + "</a>";
   }
 
@@ -185,10 +194,6 @@ function parseGbcsMessage(text) {
       }
     }
     if (last > 0 && allBlocks) {
-      var totalLen = 0;
-      gbt.forEach(block => {
-        totalLen += block.len;
-      });
       var full = "";
       for (var index = 0; index < gbt.length; index++) {
         var block = gbt[index];
@@ -201,7 +206,7 @@ function parseGbcsMessage(text) {
           break;
         }
       }
-      putSeparator("<a class=\"plain\" href=\"#" + full + "\">GBT Reconstructed Data</a>");
+      putSeparator(getLink("GBT Reconstructed Data", "#" + full, "plain"));
       output += parseGbcsMessage(full);
     }
   }
@@ -213,8 +218,7 @@ function parseGbcsMessage(text) {
     parseCounter("Originator Counter", x);
     putBytes("Originator System Title", getBytes(x, 9));
     putBytes("Recipient System Title", getBytes(x, 9));
-    var dateTimeLen = x.input[x.index];
-    putBytes("Date Time", getBytes(x, 1 + dateTimeLen));
+    parseDlmsOctetString(x, "Date Time", true);
     var otherInfoLen = parseEncodedLength(x, "Other Information Length");
     var otherInfo = getBytes(x, otherInfoLen);
     var messageCode = parseMessageCode(otherInfo);
@@ -1955,7 +1959,7 @@ function parseGbcsMessage(text) {
 
   function getSwappedFrame(name, x) {
     x.input[x.index] ^= 0x02;
-    var url = "https://henrygiraldo.github.io/gbcs-parser-js/gbcs-parser.html#" + arrayToHex(x.input);
+    var url = "gbcs-parser.html#" + arrayToHex(x.input);
     x.input[x.index] ^= 0x02;
     return getLink(name, url);
   }
