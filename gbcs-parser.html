@@ -2936,8 +2936,8 @@ function parseGbcsMessage(text) {
     parseZclUint(8, x, "Total Commands");
     parseZclBitmap(8, x, "Log Payload Control");
     for (var i = 1; x.index < x.end; i++) {
-      parseZclBitmap(8, x, "Log Id " + i);
-      parseZclUint(16, x, "Event Id " + i);
+      parseLogIdBitmap(8, x, "Log Id " + i);
+      parseZclUintHex(16, x, "Event Id " + i);
       parseZclUtcTime(x, "Event Time " + i);
       parseZclOctetString(x, "Event Data " + i);
     }
@@ -2956,6 +2956,16 @@ function parseGbcsMessage(text) {
       value = value * 256 + x.input[x.index + bytes - i - 1];
     }
     putBytes(name, getBytes(x, bytes), value);
+    return value;
+  }
+
+  function parseZclUintHex(bits, x, name) {
+    var value = 0;
+    var bytes = bits / 8;
+    for (var i = 0; i < bytes; i++) {
+      value = value * 256 + x.input[x.index + bytes - i - 1];
+    }
+    putBytes(name, getBytes(x, bytes), "0x" + value.toString(16));
     return value;
   }
 
@@ -3000,6 +3010,26 @@ function parseGbcsMessage(text) {
 
   function parseZclBitmap(bits, x, name) {
     putBytes(name, getBytes(x, bits / 8));
+  }
+
+  function getLogIdType(/*int*/ logIdType) {
+    var names = {
+      0x00: "All logs",
+      0x01: "Tamper Log",
+      0x02: "Fault Log",
+      0x03: "General Event Log",
+      0x04: "Security Event Log",
+      0x05: "Network Event Log",
+    };
+    if (logIdType <= 0x05)
+        return names[logIdType];
+    else
+        return "Reserved"
+  }
+
+  function parseLogIdBitmap(bits, x, name) {
+    var logIdType = x.input[x.index]
+    putBytes(name, getBytes(x, bits / 8), getLogIdType(logIdType));
   }
 
   function parseZclEnum(bits, x, name) {
