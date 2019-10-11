@@ -575,6 +575,7 @@ function parseGbcsMessage(text) {
       0x00F9: "ECS26m Read ESME Configuration Data Device Information (identity,  type and supply tamper state)",
       0x00FA: "ECS26n Read CHF Configuration Data Device Information (CH identity and type)",
       0x00FB: "GCS21m Read GSME Configuration Data Device Information (identity, type and supply tamper / depletion state)",
+      0x00FC: "GCS24a Set Uncontrolled Gas Flow Rate and Supply Tamper State on the GSME (SMETS4)",
       0x00FE: "CCS07 Read CHF Device Logs",
       0x0102: "CS02b Update Security Credentials (supplierBySupplier)",
       0x0103: "CS02b Update Security Credentials (networkOperatorByNetworkOperator)",
@@ -2577,6 +2578,8 @@ function parseGbcsMessage(text) {
     parseZclEnum(8, x, "Unit of Measure");
     parseZclUint(16, x, "Multiplier");
     parseZclUint(16, x, "Divisor");
+    parseZclUint(8, x, "Stabilisation Period");
+    parseZclUint(16, x, "Measurement Period");
   }
 
   function parseZsePublishSnapshot(x) {
