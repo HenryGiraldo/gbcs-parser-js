@@ -275,7 +275,7 @@ function parseGbcsMessage(text) {
         if (craFlag == 1) {
           parseProvideDeviceCertificateCommand(x);
         } else {
-          parseUpdateDeviceCertificateResponse(x);
+          parseProvideDeviceCertificateResponse(x);
         }
       } else if (messageCode == 0x000D || messageCode == 0x00AB || messageCode == 0x000E || messageCode == 0x00AF) {  // CS03A1 || CS03A2 || CS03B || CS03C
         if (craFlag == 1) {
@@ -911,7 +911,7 @@ function parseGbcsMessage(text) {
     parseKeyUsage(s);
   }
 
-  function parseUpdateDeviceCertificateResponse(x) {
+  function parseProvideDeviceCertificateResponse(x) {
     if (isPresent(x, 0x30)) {
       parseCertificate(x);
     } else {
