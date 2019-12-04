@@ -3211,6 +3211,12 @@ function stop(e) {
 textarea = document.getElementById("textarea");
 hash = null;
 
+textarea.onkeydown = function(e) {
+  if ((event.keyCode == 10 || event.keyCode == 13) && event.ctrlKey) {
+    parse();
+  }
+}
+
 if ('onhashchange' in window)
     window.onhashchange = loadFromHash;
 loadFromHash();
