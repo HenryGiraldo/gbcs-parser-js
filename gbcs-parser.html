@@ -62,9 +62,25 @@ function parse() {
     } // fails with longer than 2025 to 2050 chars in IE/Edge
 }
 
+function str2u8array(str) {
+      const buf = new Uint8Array(str.length);
+      for (var i = 0, strLen = str.length; i < strLen; i++) {
+        buf[i] = str.charCodeAt(i);
+      }
+      return buf;
+    }
+
 function parseGbcsMessage(text) {
   var output = "";
   var x = parseHexString(text);
+  if (x.input[0] != 0xDD && x.input[0] != 0xDF) {
+    // input could be base64 encoded
+    var y = parseBase64String(text);
+    if (y.input[0] == 0xDD || y.input[0] == 0xDF) {
+      // assume base64 encoding if it starts with a known tag
+      x = y;
+    }
+  }
   if (x.input[0] == 0xDD) {
     if (x.input[1] == 0x00) {
       parseGeneralCiphering(x);
@@ -117,6 +133,11 @@ function parseGbcsMessage(text) {
       }
     }
     return { input: bytes, index: 0, end: length };
+  }
+
+  function parseBase64String(text) {
+    var bytes = str2u8array(window.atob(text));
+    return { input: bytes, index: 0, end: bytes.length };
   }
 
   function getBytes(x, n) {
@@ -302,14 +323,6 @@ function parseGbcsMessage(text) {
           verifStatus.innerHTML = '<p style="color: red">Verification <b>FAILED</b></p>';
         }
       }
-    }
-
-    function str2u8array(str) {
-      const buf = new Uint8Array(str.length);
-      for (var i = 0, strLen = str.length; i < strLen; i++) {
-        buf[i] = str.charCodeAt(i);
-      }
-      return buf;
     }
 
     function publicKeyFromPem(pem) {
