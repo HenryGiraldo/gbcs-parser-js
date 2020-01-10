@@ -329,12 +329,14 @@ function parseGbcsMessage(text) {
     function publicKeyFromPem(pem) {
       const pemHeader = "-----BEGIN PUBLIC KEY-----";
       const pemFooter = "-----END PUBLIC KEY-----";
+      const pemContents = pem;
       if (pem.startsWith(pemHeader) && pem.endsWith(pemFooter)) {
-        const pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
-        const binaryDerString = window.atob(pemContents);
-        const binaryDer = str2u8array(binaryDerString);
-        return binaryDer;
+        pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
       }
+      // Try parsing the public key even if it does not have header/footer
+      const binaryDerString = window.atob(pemContents);
+      const binaryDer = str2u8array(binaryDerString);
+      return binaryDer;
     }
 
     function publicKeyFromCert(pem) {
@@ -344,7 +346,7 @@ function parseGbcsMessage(text) {
       if (pem.startsWith(pemHeader) && pem.endsWith(pemFooter)) {
         pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
       }
-      // Try parsing the certificate event if it does not have header/footer
+      // Try parsing the certificate even if it does not have header/footer
       const binaryDerString = window.atob(pemContents);
       const binaryDer = str2u8array(binaryDerString);
       const certificate = parsePemCertificate(binaryDer);
@@ -367,9 +369,6 @@ function parseGbcsMessage(text) {
       const pem = pubkey.value.trim();
       var derKey;
       derKey = publicKeyFromPem(pem);
-      if (!derKey) {
-        derKey = publicKeyFromCert(pem);
-      }
 
       window.crypto.subtle.importKey(
         "spki",
@@ -378,6 +377,17 @@ function parseGbcsMessage(text) {
         true,
         [ "verify" ]
       )
+      .catch(function(e) {
+        // It is not a public key, maybe it is a certificate
+        derKey = publicKeyFromCert(pem);
+        return window.crypto.subtle.importKey(
+          "spki",
+          derKey,
+          { name: "ECDSA", namedCurve: "P-256" },
+          true,
+          [ "verify" ]
+        );
+      })
       .then(function (key) {
         return window.crypto.subtle.verify(
           { name: "ECDSA", hash: "SHA-256" },
