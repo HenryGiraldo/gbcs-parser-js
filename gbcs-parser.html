@@ -1552,7 +1552,7 @@ function parseGbcsMessage(text) {
   function getCertificateDecoder(name, x, n) {
     var bin = x.input.slice(x.index, x.index + n);
     var base64 = btoa(String.fromCharCode.apply(null, bin));
-    var url = "https://ssldecoder.org/?csr=-----BEGIN+CERTIFICATE-----%0D%0A" + encodeURIComponent(base64) + "%0D%0A-----END+CERTIFICATE-----";
+    var url = "https://ssldecoder.daniel-ruf.de/?csr=-----BEGIN+CERTIFICATE-----%0D%0A" + encodeURIComponent(base64) + "%0D%0A-----END+CERTIFICATE-----";
     return getLink(name, url);
   }
 
