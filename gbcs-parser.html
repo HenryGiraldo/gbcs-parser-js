@@ -20,13 +20,14 @@
 -->
 <html>
 <head>
+<meta charset="UTF-8">
 <title>GBCS Message Parser</title>
 <style>
 body { background-color: #fff; color: #000; font-family: monospace; }
 h1 { color: #009ee2; }
 a.plain { text-decoration: none; color: inherit; }
 a.plain:visited { color: inherit; }
-textarea { width: 100%; resize: vertical; }
+textarea { width: 100%; resize: vertical; box-sizing: border-box; }
 table { border-collapse: collapse; table-layout: fixed; width: 100%; }
 tr:nth-child(odd) { background-color: #f0f8ff; }
 th { border: 1px solid #009ee2; background-color: #009ee2; color: #fff; font-weight: bold; }
@@ -62,9 +63,25 @@ function parse() {
     } // fails with longer than 2025 to 2050 chars in IE/Edge
 }
 
+function str2u8array(str) {
+      const buf = new Uint8Array(str.length);
+      for (var i = 0, strLen = str.length; i < strLen; i++) {
+        buf[i] = str.charCodeAt(i);
+      }
+      return buf;
+    }
+
 function parseGbcsMessage(text) {
   var output = "";
   var x = parseHexString(text);
+  if (x.input[0] != 0xDD && x.input[0] != 0xDF) {
+    // input could be base64 encoded
+    var y = parseBase64String(text);
+    if (y.input[0] == 0xDD || y.input[0] == 0xDF) {
+      // assume base64 encoding if it starts with a known tag
+      x = y;
+    }
+  }
   if (x.input[0] == 0xDD) {
     if (x.input[1] == 0x00) {
       parseGeneralCiphering(x);
@@ -117,6 +134,11 @@ function parseGbcsMessage(text) {
       }
     }
     return { input: bytes, index: 0, end: length };
+  }
+
+  function parseBase64String(text) {
+    var bytes = str2u8array(window.atob(text));
+    return { input: bytes, index: 0, end: bytes.length };
   }
 
   function getBytes(x, n) {
@@ -214,6 +236,7 @@ function parseGbcsMessage(text) {
 
   function parseGeneralSigning(x) {
     putSeparator("Grouping Header");
+    var signedDataStart = x.index + 1;
     putBytes("General Signing", getBytes(x, 2));
     var craFlag = parseCraFlag(x);
     parseCounter("Originator Counter", x);
@@ -236,10 +259,341 @@ function parseGbcsMessage(text) {
     }
     var contentLen = parseEncodedLength(x, "Content Length");
     parsePayload(getBytes(x, contentLen), messageCode, craFlag);
+    var signedDataEnd = x.index;
     putSeparator("Signature");
     var signatureLen = parseEncodedLength(x, "Signature Length");
     if (signatureLen > 0) {
-      putBytes("Signature", getBytes(x, signatureLen));
+      var s = getBytes(x, signatureLen);
+      var dataToSign = x.input.subarray(signedDataStart, signedDataEnd);
+      var signature = s.input.subarray(s.index, s.end);
+      putBytes("Signature", s, '<div id="signature-check"></div>');
+
+      execIfSignatureCheckIsAvailable(function() {
+        // When this is executed message has been processed and DOM updated
+        var signatureCheck = document.getElementById("signature-check");
+        if (signatureCheck) {
+          var pubkey = document.createElement("textarea");
+          pubkey.id = "pub-key";
+          pubkey.rows = "6";
+          pubkey.placeholder = "Paste here the digital signature certificate or public key in PEM format";
+          var button = document.createElement("button");
+          button.innerText = "Verify";
+          button.onclick = function() {
+            checkSignature(dataToSign, signature);
+          };
+          var verifStatus = document.createElement("div");
+          verifStatus.id = "verif-status";
+          verifStatus.innerHTML = "<p> </p>";
+          signatureCheck.appendChild(pubkey);
+          signatureCheck.appendChild(button);
+          signatureCheck.appendChild(verifStatus);
+        }
+      });
+    }
+  }
+
+  // Execute callback asynchronously if WebCrypto ECDSA with P-256 curve is available.
+  function execIfSignatureCheckIsAvailable(callback) {
+    try {
+      window.crypto.subtle.importKey(
+        "jwk",
+        {
+          "kty": "EC",
+          "crv": "P-256",
+          "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+          "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+        },
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        false,
+        [ "verify" ]
+      )
+      .then(callback);
+    } catch (e) { }
+  }
+
+  function checkSignature(dataToSign, signature) {
+
+    function updateStatus(result, error) {
+      var verifStatus = document.getElementById("verif-status");
+      if (result) {
+        verifStatus.innerHTML = '<p style="color: green">Verification <b>PASSED</b></p>';
+      } else {
+        if (error) {
+          verifStatus.innerHTML = '<p style="color: red">' + error + '</p>';
+        } else {
+          verifStatus.innerHTML = '<p style="color: red">Verification <b>FAILED</b></p>';
+        }
+      }
+    }
+
+    function publicKeyFromPem(pem) {
+      const pemHeader = "-----BEGIN PUBLIC KEY-----";
+      const pemFooter = "-----END PUBLIC KEY-----";
+      if (pem.startsWith(pemHeader) && pem.endsWith(pemFooter)) {
+        const pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
+        const binaryDerString = window.atob(pemContents);
+        const binaryDer = str2u8array(binaryDerString);
+        return binaryDer;
+      }
+    }
+
+    function publicKeyFromCert(pem) {
+      const pemHeader = "-----BEGIN CERTIFICATE-----";
+      const pemFooter = "-----END CERTIFICATE-----";
+      var pemContents = pem;
+      if (pem.startsWith(pemHeader) && pem.endsWith(pemFooter)) {
+        pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
+      }
+      // Try parsing the certificate event if it does not have header/footer
+      const binaryDerString = window.atob(pemContents);
+      const binaryDer = str2u8array(binaryDerString);
+      const certificate = parsePemCertificate(binaryDer);
+
+      const alg = certificate.tbsCertificate.signature.algorithm;
+      const publicKeyType = certificate.tbsCertificate.subjectPublicKeyInfo.algorithm.algorithm;
+      const namedCurve = certificate.tbsCertificate.subjectPublicKeyInfo.algorithm.parameters.curve;
+      if (alg !== "1.2.840.10045.4.3.2" &&          // ecdsaWithSHA256
+        publicKeyType !== "1.2.840.10045.2.1" &&    // ecPublicKey
+        namedCurve !== "1.2.840.10045.3.1.7") {     // prime256v1
+        throw new Error("Signature algorithm " + alg + " is not supported.");
+      }
+      return certificate.tbsCertificate.subjectPublicKeyInfo.asn1.raw;
+    }
+
+    var pubkey = document.getElementById("pub-key");
+    document.getElementById("verif-status").innerHTML = "<p>⌛</p>";
+
+    try {
+      const pem = pubkey.value.trim();
+      var derKey;
+      derKey = publicKeyFromPem(pem);
+      if (!derKey) {
+        derKey = publicKeyFromCert(pem);
+      }
+
+      window.crypto.subtle.importKey(
+        "spki",
+        derKey,
+        { name: "ECDSA", namedCurve: "P-256" },
+        true,
+        [ "verify" ]
+      )
+      .then(function (key) {
+        return window.crypto.subtle.verify(
+          { name: "ECDSA", hash: "SHA-256" },
+          key,
+          signature,
+          dataToSign
+        );
+      })
+      .then(function (result) {
+        if (result) {
+          updateStatus(true);
+        } else {
+          updateStatus(false);
+        }
+      })
+      .catch(function (e) {
+        updateStatus(false, e);
+      });
+    } catch (e) {
+      updateStatus(false, e);
+    }
+  }
+
+
+  // From https://blog.engelke.com/2014/10/21/web-crypto-and-x-509-certificates/
+  function parsePemCertificate(byteArray) {
+    var asn1 = berToJavaScript(byteArray);
+    if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+      throw new Error("This can't be an X.509 certificate. Wrong data type.");
+    }
+    
+    var cert = {asn1: asn1};  // Include the raw parser result for debugging
+    var pieces = berListToJavaScript(asn1.contents);
+    if (pieces.length !== 3) {
+      throw new Error("Certificate contains more than the three specified children.");
+    }
+    
+    cert.tbsCertificate     = parseTBSCertificate(pieces[0]);
+    cert.signatureAlgorithm = parseAlgorithmIdentifier(pieces[1]);
+    cert.signatureValue     = parseSignatureValue(pieces[2]);
+    
+    return cert;
+    
+    function berListToJavaScript(byteArray) {
+      var result = new Array();
+      var nextPosition = 0;
+      while (nextPosition < byteArray.length) {
+        var nextPiece = berToJavaScript(byteArray.subarray(nextPosition));
+        result.push(nextPiece);
+        nextPosition += nextPiece.byteLength;
+      }
+      return result;
+    }
+    
+    function parseSignatureValue(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 3 || asn1.structured) {
+        throw new Error("Bad signature value. Not a BIT STRING.");
+      }
+      var sig = {asn1: asn1};   // Useful for debugging
+      sig.bits = berBitStringValue(asn1.contents);
+      return sig;
+    }
+    
+    function berBitStringValue(byteArray) {
+      return {
+        unusedBits: byteArray[0],
+        bytes: byteArray.subarray(1)
+      };
+    }
+    
+    function parseAlgorithmIdentifier(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("Bad algorithm identifier. Not a SEQUENCE.");
+      }
+      var alg = {asn1: asn1};
+      var pieces = berListToJavaScript(asn1.contents);
+      if (pieces.length > 2) {
+        throw new Error("Bad algorithm identifier. Contains too many child objects.");
+      }
+      var encodedAlgorithm = pieces[0];
+      if (encodedAlgorithm.cls !== 0 || encodedAlgorithm.tag !== 6 || encodedAlgorithm.structured) {
+        throw new Error("Bad algorithm identifier. Does not begin with an OBJECT IDENTIFIER.");
+      }
+      alg.algorithm = berObjectIdentifierValue(encodedAlgorithm.contents);
+      if (pieces.length === 2) {
+        var encodedCurve = pieces[1];
+        if (encodedCurve.cls !== 0 || encodedCurve.tag !== 6 || encodedCurve.structured) {
+          throw new Error("Bad algorithm identifier. Does not contain valid parameters.");
+        }
+        alg.parameters = {asn1: pieces[1]};
+        alg.parameters.curve = berObjectIdentifierValue(encodedCurve.contents);
+      } else {
+        alg.parameters = null;  // It is optional
+      }
+      return alg;
+    }
+    
+    function berObjectIdentifierValue(byteArray) {
+      var oid = Math.floor(byteArray[0] / 40) + "." + byteArray[0] % 40;
+      var position = 1;
+      while(position < byteArray.length) {
+        var nextInteger = 0;
+        while (byteArray[position] >= 0x80) {
+          nextInteger = nextInteger * 0x80 + (byteArray[position] & 0x7f);
+          position += 1;
+        }
+        nextInteger = nextInteger * 0x80 + byteArray[position];
+        position += 1;
+        oid += "." + nextInteger;
+      }
+      return oid;
+    }
+    
+    function parseTBSCertificate(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("This can't be a TBSCertificate. Wrong data type.");
+      }
+      var tbs = {asn1: asn1};  // Include the raw parser result for debugging
+      var pieces = berListToJavaScript(asn1.contents);
+      if (pieces.length < 7) {
+        throw new Error("Bad TBS Certificate. There are fewer than the seven required children.");
+      }
+      tbs.version = pieces[0];
+      tbs.serialNumber = pieces[1];
+      tbs.signature = parseAlgorithmIdentifier(pieces[2]);
+      tbs.issuer = pieces[3];
+      tbs.validity = pieces[4];
+      tbs.subject = pieces[5];
+      tbs.subjectPublicKeyInfo = parseSubjectPublicKeyInfo(pieces[6]);
+      return tbs;  // Ignore optional fields for now
+    }
+    
+    function parseSubjectPublicKeyInfo(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("Bad SPKI. Not a SEQUENCE.");
+      }
+      var spki = {asn1: asn1};
+      var pieces = berListToJavaScript(asn1.contents);
+      if (pieces.length !== 2) {
+        throw new Error("Bad SubjectPublicKeyInfo. Wrong number of child objects.");
+      }
+      spki.algorithm = parseAlgorithmIdentifier(pieces[0]);
+      spki.bits = berBitStringValue(pieces[1].contents);
+      return spki;
+    }
+    
+    // From https://blog.engelke.com/2014/10/17/parsing-ber-and-der-encoded-asn-1-objects/
+    function berToJavaScript(byteArray) {
+      "use strict";
+      var result = {};
+      var position = 0;
+      
+      result.cls              = getClass();
+      result.structured       = getStructured();
+      result.tag              = getTag();
+      var length              = getLength(); // As encoded, which may be special value 0
+      
+      if (length === 0x80) {
+        length = 0;
+        while (byteArray[position + length] !== 0 || byteArray[position + length + 1] !== 0) {
+          length += 1;
+        }
+        result.byteLength   = position + length + 2;
+        result.contents     = byteArray.subarray(position, position + length);
+      } else {
+        result.byteLength   = position + length;
+        result.contents     = byteArray.subarray(position, result.byteLength);
+      }
+      
+      result.raw              = byteArray.subarray(0, result.byteLength); // May not be the whole input array
+      return result;
+      
+      function getClass() {
+        var cls = (byteArray[position] & 0xc0) / 64;
+        // Consumes no bytes
+        return cls;
+      }
+      
+      function getStructured() {
+        var structured = ((byteArray[0] & 0x20) === 0x20);
+        // Consumes no bytes
+        return structured;
+      }
+      
+      function getTag() {
+        var tag = byteArray[0] & 0x1f;
+        position += 1;
+        if (tag === 0x1f) {
+          tag = 0;
+          while (byteArray[position] >= 0x80) {
+            tag = tag * 128 + byteArray[position] - 0x80;
+            position += 1;
+          }
+          tag = tag * 128 + byteArray[position] - 0x80;
+          position += 1;
+        }
+        return tag;
+      }
+      
+      function getLength() {
+        var length = 0;
+        
+        if (byteArray[position] < 0x80) {
+          length = byteArray[position];
+          position += 1;
+        } else {
+          var numberOfDigits = byteArray[position] & 0x7f;
+          position += 1;
+          length = 0;
+          for (var i=0; i<numberOfDigits; i++) {
+            length = length * 256 + byteArray[position];
+            position += 1;
+          }
+        }
+        return length;
+      }
     }
   }
 
@@ -1199,7 +1553,7 @@ function parseGbcsMessage(text) {
   function getCertificateDecoder(name, x, n) {
     var bin = x.input.slice(x.index, x.index + n);
     var base64 = btoa(String.fromCharCode.apply(null, bin));
-    var url = "https://ssldecoder.org/?csr=-----BEGIN+CERTIFICATE-----%0D%0A" + encodeURIComponent(base64) + "%0D%0A-----END+CERTIFICATE-----";
+    var url = "https://ssldecoder.daniel-ruf.de/?csr=-----BEGIN+CERTIFICATE-----%0D%0A" + encodeURIComponent(base64) + "%0D%0A-----END+CERTIFICATE-----";
     return getLink(name, url);
   }
 
