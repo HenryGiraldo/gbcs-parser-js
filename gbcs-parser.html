@@ -338,7 +338,7 @@ function parseGbcsMessage(text) {
     function publicKeyFromPem(pem) {
       const pemHeader = "-----BEGIN PUBLIC KEY-----";
       const pemFooter = "-----END PUBLIC KEY-----";
-      const pemContents = pem;
+      var pemContents = pem;
       if (pem.startsWith(pemHeader) && pem.endsWith(pemFooter)) {
         pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
       }
