@@ -684,6 +684,10 @@ function parseGbcsMessage(text) {
         }
       } else if (messageCode == 0x00B2) {  // GCS62
         parseGpfDeviceLogBackupAlert(x);
+      } else if (messageCode == 0x00CC) {  // Future Dated DLMS
+        parseDlmsFutureDatedAlert(x);
+      } else if (messageCode == 0x00CD) {  // Future Dated GBZ
+        parseGbzFutureDatedAlertPayload(x);
       } else if (x.input[x.index] == 1 && x.input[x.index + 1] == 9) {
         if (craFlag == 3) {
           parseGbzAlertPayload(x);
@@ -1720,6 +1724,16 @@ function parseGbcsMessage(text) {
     }
   }
 
+  function parseDlmsFutureDatedAlert(x) {
+    putBytes("DLMS Data Notification (Future Dated Alert)", getBytes(x, 8));
+    parseDlmsAlertCode(x);
+    parseDlmsOctetString(x, "Time Stamp");
+    putBytes("Future Dated Alert Payload", getBytes(x, 2));
+    parseMessageCode(x);
+    parseCounter("Originator Counter", x);
+    parseDlmsCosemAttributeDescriptor(x);
+  }
+
   function parseDlmsSequenceOf(x, name, parse) {
     var n = x.input[x.index];
     putBytes(name, getBytes(x, 1));
@@ -2413,6 +2427,20 @@ function parseGbcsMessage(text) {
     if (x.index < x.end) {
       putBytes("GBZ Use Case Specific Components", x);
     }
+  }
+
+  function parseGbzFutureDatedAlertPayload(x) {
+    putBytes("Profile ID", getBytes(x, 2));
+    putBytes("Number of GBZ components", getBytes(x, 1));
+    parseGbzAlertCode(x);
+    parseGbzTime(x, "Time Stamp");
+    putBytes("Future Dated Alert Payload", getBytes(x, 1));
+    parseMessageCode(x);
+    parseCounter("Originator Counter", x);
+    var cluster = parseClusterId(x);
+    var frameControl = x.input[x.index];
+    putBytes("Frame Control", getBytes(x, 1));
+    parseCommandId(x, frameControl, cluster);
   }
 
   function parseGbzGcs53AlertPayload(x) {
