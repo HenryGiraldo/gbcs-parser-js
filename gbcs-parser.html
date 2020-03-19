@@ -71,6 +71,15 @@ function str2u8array(str) {
       return buf;
     }
 
+function escapeHtml(unsafe) {
+  return String(unsafe)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function parseGbcsMessage(text) {
   var output = "";
   var x = parseHexString(text);
@@ -329,7 +338,7 @@ function parseGbcsMessage(text) {
     function publicKeyFromPem(pem) {
       const pemHeader = "-----BEGIN PUBLIC KEY-----";
       const pemFooter = "-----END PUBLIC KEY-----";
-      const pemContents = pem;
+      var pemContents = pem;
       if (pem.startsWith(pemHeader) && pem.endsWith(pemFooter)) {
         pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
       }
@@ -715,8 +724,11 @@ function parseGbcsMessage(text) {
       value = x.input[x.index + 1];
       bytes = 2;
     } else if (value == 0x82) {
-      value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      value = x.input[x.index + 1] * 0x100 + x.input[x.index + 2];
       bytes = 3;
+    } else if (value == 0x83) {
+      value = x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+      bytes = 4;
     }
     putBytes(name, getBytes(x, bytes), value);
     return value;
@@ -1838,10 +1850,12 @@ function parseGbcsMessage(text) {
       var hday = "2nd last " + daysInWeek[dayOfWeek] + " of"
     else if (dayOfMonth == 0xFE)
       var hday = "Last " + daysInWeek[dayOfWeek] + " of"
-    else if (dayOfMonth < 10)
+    else if (dayOfMonth > 0 && dayOfMonth < 10)
       var hday = "0" + dayOfMonth;
-    else
+    else if (dayOfMonth > 0 && dayOfMonth <= 31)
       var hday = dayOfMonth;
+    else
+      return null;
 
     //Month
     if (month == 0xFF)
@@ -1850,8 +1864,10 @@ function parseGbcsMessage(text) {
       var hmon = "DST-end month of";
     else if (month == 0xFE)
       var hmon = "DST-begin month of";
-    else
+    else if (month >= 1 && month <= 12)
       var hmon = monthsInYear[month];
+    else
+      return null;
 
     //Year
     if (year == 0xFFFF)
@@ -1864,64 +1880,59 @@ function parseGbcsMessage(text) {
   }
 
   function getDlmsLongDate(x) {
-    var year = x.input[x.index + 2] << 8 | x.input[x.index + 3];
-    var month = x.input[x.index + 4];
-    var dayOfMonth = x.input[x.index + 5];
-    var dayOfWeek = x.input[x.index + 6];
+    function checkSameValue(arr, val) {
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] != val) return false;
+      }
+      return true;
+    }
+
+    var dev = x.input[x.index + 11] << 8 | x.input[x.index + 12];
+    var clk = x.input[x.index + 13];
+    if (dev == 0x8000 && clk == 0xFF) {
+      var dateTimeSlice = x.input.subarray(x.index + 2, x.index + 11);
+      if (checkSameValue(dateTimeSlice, 0x00)) {
+        return "NOW";
+      }
+      else if (checkSameValue(dateTimeSlice, 0xFF)) {
+        return "NEVER";
+      }
+    }
+
     var hour = x.input[x.index + 7];
     var mins = x.input[x.index + 8];
     var sec = x.input[x.index + 9];
     var hsec = x.input[x.index + 10];
 
-    //Day
-    if (dayOfMonth == 0xFF)
-      var hday = "Every day";
-    else if (dayOfMonth == 0xFD)
-      var hday = "2nd last " + daysInWeek[dayOfWeek] + " of"
-    else if (dayOfMonth == 0xFE)
-      var hday = "Last " + daysInWeek[dayOfWeek] + " of"
-    else if (dayOfMonth < 10)
-      var hday = "0" + dayOfMonth;
-    else
-      var hday = dayOfMonth;
-
-    //Month
-    if (month == 0xFF)
-      var hmon = "every month of";
-    else if (month == 0xFD)
-      var hmon = "DST-end month of";
-    else if (month == 0xFE)
-      var hmon = "DST-begin month of";
-    else
-      var hmon = monthsInYear[month];
-
-    //Year
-    if (year == 0xFFFF)
-      var hyear = "every year";
-    else
-      var hyear = year;
-
     if (hour == 0xFF)
       hour = "Every hour"
     else if (hour < 10)
       hour = "0" + hour
+    else if (hour > 23)
+      return null;
 
     if (mins == 0xFF)
       mins = "Every minute"
     else if (mins < 10)
       mins = "0" + mins
+    else if (mins > 59)
+      return null;
 
     if (sec == 0xFF)
       sec = "Every second"
     else if (sec < 10)
       sec = "0" + sec
+    else if (sec > 59)
+      return null;
 
     if (hsec == 0xFF)
       hsec = "00"
     else if (hsec < 10)
       hsec = "0" + hsec
 
-    var date = hday + " " + hmon + " " + hyear + " " + hour + ":" + mins + ":" + sec + "." + hsec;
+    var date = getDlmsDate(x);
+    if (date)
+      date += " " + hour + ":" + mins + ":" + sec + "." + hsec;
     return date
   }
 
@@ -1934,19 +1945,35 @@ function parseGbcsMessage(text) {
     if (len == 0x81) {
       len = 1 + x.input[x.index + 2];
     } else if (len == 0x82) {
-      len = 2 + x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      len = 2 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+    } else if (len == 0x83) {
+      len = 3 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
     }
-    if (len == 5) {
-      var date = getDlmsDate(x);
+    var stringLike = true;
+    for (var i = 0; i < len; i++) {
+      var c = x.input[x.index + 2 + i];
+      if (c < 0x20 || c > 0x7E) {
+        stringLike = false;
+        break;
+      }
+    }
+    var text = "";
+    if (len > 1 && stringLike) {
+      for (var i = 0; i < len; i++) {
+        text += String.fromCharCode(x.input[x.index + 2 + i]);
+      }
+      text = '"' + escapeHtml(text) + '"';
+    } else if (len == 5) {
+      text = getDlmsDate(x);
     } else if (len == 12) {
-      var date = getDlmsLongDate(x);
+      text = getDlmsLongDate(x);
     }
     var offset = 2;
     if (firstSkipped) {
         x.index++;
         offset--;
     }
-    putBytes(name, getBytes(x, offset + len), date);
+    putBytes(name, getBytes(x, offset + len), text);
   }
 
   function parseDlmsLongUnsigned(x, name) {
