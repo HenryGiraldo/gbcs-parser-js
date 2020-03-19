@@ -724,8 +724,11 @@ function parseGbcsMessage(text) {
       value = x.input[x.index + 1];
       bytes = 2;
     } else if (value == 0x82) {
-      value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      value = x.input[x.index + 1] * 0x100 + x.input[x.index + 2];
       bytes = 3;
+    } else if (value == 0x83) {
+      value = x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+      bytes = 4;
     }
     putBytes(name, getBytes(x, bytes), value);
     return value;
@@ -1942,13 +1945,16 @@ function parseGbcsMessage(text) {
     if (len == 0x81) {
       len = 1 + x.input[x.index + 2];
     } else if (len == 0x82) {
-      len = 2 + x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      len = 2 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+    } else if (len == 0x83) {
+      len = 3 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
     }
     var stringLike = true;
     for (var i = 0; i < len; i++) {
       var c = x.input[x.index + 2 + i];
       if (c < 0x20 || c > 0x7E) {
         stringLike = false;
+        break;
       }
     }
     var text = "";
