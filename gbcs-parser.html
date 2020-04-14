@@ -130,6 +130,12 @@ function parseGbcsMessage(text) {
     }
   }
 
+  function putUnparsedBytes(bytes) {
+    if (bytes.end - bytes.index > 0) {
+      putBytes("Unknown", bytes, "ERROR: Unexpected data");
+    }
+  }
+
   function parseHexString(text) {
     var bytes = new Uint8Array(text.length / 2);
     var length = 0;
@@ -715,6 +721,7 @@ function parseGbcsMessage(text) {
     } catch(error) {
       putBytes("ERROR", x, error);
     }
+    putUnparsedBytes(x);
   }
 
   function parseEncodedLength(x, name) {
@@ -2538,6 +2545,7 @@ function parseGbcsMessage(text) {
         } else {
           putBytes("ZCL Payload", y);
         }
+        putUnparsedBytes(y);
       }
     } catch(error) {
       putBytes("ERROR", y, error);
