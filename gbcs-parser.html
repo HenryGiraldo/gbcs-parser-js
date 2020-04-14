@@ -1854,9 +1854,9 @@ function parseGbcsMessage(text) {
     if (dayOfMonth == 0xFF)
       var hday = "Every day";
     else if (dayOfMonth == 0xFD)
-      var hday = "2nd last " + daysInWeek[dayOfWeek] + " of"
+      var hday = "2nd last " + daysInWeek[dayOfWeek] + " of";
     else if (dayOfMonth == 0xFE)
-      var hday = "Last " + daysInWeek[dayOfWeek] + " of"
+      var hday = "Last " + daysInWeek[dayOfWeek] + " of";
     else if (dayOfMonth > 0 && dayOfMonth < 10)
       var hday = "0" + dayOfMonth;
     else if (dayOfMonth > 0 && dayOfMonth <= 31)
@@ -1886,6 +1886,42 @@ function parseGbcsMessage(text) {
     return date
   }
 
+  function getDlmsTime(x) {
+    var hour = x.input[x.index + 2];
+    var mins = x.input[x.index + 3];
+    var sec  = x.input[x.index + 4];
+    var hsec = x.input[x.index + 5];
+
+    if (hour == 0xFF)
+      hour = "Every hour";
+    else if (hour < 10)
+      hour = "0" + hour;
+    else if (hour > 23)
+      return null;
+
+    if (mins == 0xFF)
+      mins = "Every minute";
+    else if (mins < 10)
+      mins = "0" + mins;
+    else if (mins > 59)
+      return null;
+
+    if (sec == 0xFF)
+      sec = "Every second";
+    else if (sec < 10)
+      sec = "0" + sec;
+    else if (sec > 59)
+      return null;
+
+    if (hsec == 0xFF)
+      hsec = "00";
+    else if (hsec < 10)
+      hsec = "0" + hsec;
+
+    var time = hour + ":" + mins + ":" + sec + "." + hsec;
+    return time
+  }
+
   function getDlmsLongDate(x) {
     function checkSameValue(arr, val) {
       for (var i = 0; i < arr.length; i++) {
@@ -1899,50 +1935,30 @@ function parseGbcsMessage(text) {
     if (dev == 0x8000 && clk == 0xFF) {
       var dateTimeSlice = x.input.subarray(x.index + 2, x.index + 11);
       if (checkSameValue(dateTimeSlice, 0x00)) {
+        // for DLMS COSEM Commands Payloads, activation date-time(s) have the value 0x0000000000000000008000FF;
         return "NOW";
       }
       else if (checkSameValue(dateTimeSlice, 0xFF)) {
+        // for DLMS COSEM Commands Payloads, activation date-time(s) have the value 0xFFFFFFFFFFFFFFFFFF8000FF;
         return "NEVER";
       }
     }
 
-    var hour = x.input[x.index + 7];
-    var mins = x.input[x.index + 8];
-    var sec = x.input[x.index + 9];
-    var hsec = x.input[x.index + 10];
-
-    if (hour == 0xFF)
-      hour = "Every hour"
-    else if (hour < 10)
-      hour = "0" + hour
-    else if (hour > 23)
-      return null;
-
-    if (mins == 0xFF)
-      mins = "Every minute"
-    else if (mins < 10)
-      mins = "0" + mins
-    else if (mins > 59)
-      return null;
-
-    if (sec == 0xFF)
-      sec = "Every second"
-    else if (sec < 10)
-      sec = "0" + sec
-    else if (sec > 59)
-      return null;
-
-    if (hsec == 0xFF)
-      hsec = "00"
-    else if (hsec < 10)
-      hsec = "0" + hsec
-
     var date = getDlmsDate(x);
-    if (date)
-      date += " " + hour + ":" + mins + ":" + sec + "." + hsec;
+    x.index += 5;
+    var time = getDlmsTime(x);
+    x.index -= 5;
+    if (date && time)
+      date += " " + time;
     return date
   }
 
+  function getDlmsObis(x) {
+    x.index += 2;
+    text = formatObis(x);
+    x.index -= 2;
+    return text;
+  }
 
   function parseDlmsOctetString(x, name, firstSkipped) {
     if (firstSkipped) {
@@ -1970,10 +1986,14 @@ function parseGbcsMessage(text) {
         text += String.fromCharCode(x.input[x.index + 2 + i]);
       }
       text = '"' + escapeHtml(text) + '"';
+    } else if (len == 4) {
+      text = getDlmsTime(x);
     } else if (len == 5) {
       text = getDlmsDate(x);
     } else if (len == 12) {
       text = getDlmsLongDate(x);
+    } else if (len == 6) {
+      text = getDlmsObis(x);
     }
     var offset = 2;
     if (firstSkipped) {
