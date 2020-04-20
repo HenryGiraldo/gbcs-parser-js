@@ -1781,7 +1781,8 @@ function parseGbcsMessage(text) {
         parseDlmsData(x, indent + " ");
       }
     } else if (choice == 3) {
-      putBytes(indent + "Boolean", getBytes(x, 2));
+      var value = x.input[x.index + 1] ? "True" : "False";
+      putBytes(indent + "Boolean", getBytes(x, 2), value);
     } else if (choice == 4) {
       parseDlmsBitString(x, indent + "Bit String");
     } else if (choice == 5) {
@@ -2104,7 +2105,8 @@ function parseGbcsMessage(text) {
           parseDlmsTypeDescriptionContentsData(indent + " ", x, t);
         }
       } else if (choice == 3) { // boolean
-        putBytes(indent + "Boolean", getBytes(x, 1));
+        var value = x.input[x.index] ? "True" : "False"
+        putBytes(indent + "Boolean", getBytes(x, 1), value);
       } else if (choice == 4) { // bit-string
         parseDlmsBitString(x, indent + "Bit String", true);
       } else if (choice == 5) { // double-long
