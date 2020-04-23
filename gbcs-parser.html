@@ -1848,18 +1848,18 @@ function parseGbcsMessage(text) {
     }
     for (var i = 0; i < nfull; i++) {
       // full byte
-      var b = x.input[x.index + 2 + i];
+      var b = x.input[x.index + bytelen + i];
       for (var j = 0; j < 8; j++) {
-        value += prettybit(i * 8 + j, (b >> (8 - j)) & 1);
-    }
+        value += prettybit(i * 8 + j, (b >> (7 - j)) & 1);
+      }
       value += " ";
     }
     if (rem > 0) {
       // partial byte, MSB-aligned
-      var b = x.input[x.index + 2 + nfull];
+      var b = x.input[x.index + bytelen + nfull];
       for (var j = 0; j < rem; j++) {
-        value += prettybit(i * 8 + j, (b >> (8 - j)) & 1);
-    }
+        value += prettybit(i * 8 + j, (b >> (7 - j)) & 1);
+      }
     }
 
     bytelen += Math.floor((bitlen + 7) / 8);
