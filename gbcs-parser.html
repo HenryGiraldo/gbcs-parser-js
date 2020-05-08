@@ -2924,6 +2924,16 @@ function parseGbcsMessage(text) {
     parseZclEnum(8, x, "Unit of Measure");
     parseZclUint(16, x, "Currency");
     parseZclBitmap(8, x, "Price Trailing Digit and Price Tier");
+    parseZclBitmap(8, x, "Number of Price Tiers and Register Tier");
+    parseZclUtcTime(x, "Start Time");
+    parseZclUint(16, x, "Duration in Minutes");
+    parseZclUint(32, x, "Price");
+    // NOTE: the Response may contain an additional 19 octets after this
+    // parameter. Those 19 octets do not contain meaningful information
+    // and so, if present, should be ignored by all parties
+    if (x.end - x.index == 19) {
+      putBytes("Meaningless Information", x);
+    }
   }
 
   function parseZsePublishBlockPeriod(x) {
