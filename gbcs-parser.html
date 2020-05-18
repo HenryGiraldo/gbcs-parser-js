@@ -31,6 +31,7 @@ textarea { width: 100%; resize: vertical; box-sizing: border-box; font-family: C
 table { border-collapse: collapse; table-layout: fixed; width: 100%; }
 tr:nth-child(odd) { background-color: #f0f8ff; }
 th { border: 1px solid #009ee2; background-color: #009ee2; color: #fff; font-weight: bold; }
+th.attribute { background-color: #60b8dd; }
 td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-space: pre-wrap; }
 div.bit { display: inline; cursor: help; }
 </style>
@@ -110,8 +111,12 @@ function parseGbcsMessage(text) {
   }
   return output;
 
-  function putSeparator(title) {
-    output += "<tr><th colspan=3>" + title;
+  function putSeparator(title, klass) {
+    if (!klass) {
+      output += '<tr><th colspan="3">' + title;
+    } else {
+      output += '<tr><th class="' + klass + '" colspan="3">' + title;
+    }
   }
 
   function putBytes(name, bytes, notes) {
@@ -2840,7 +2845,7 @@ function parseGbcsMessage(text) {
 
   function parseZclReadAttributesResponse(x, cluster) {
     for (var i = 1; x.index < x.end; i++) {
-      putSeparator("Attribute " + i);
+      putSeparator("Attribute " + i, "attribute");
       var id = x.input[x.index] + x.input[x.index + 1] * 256;
       var name = cluster.attributes[id] || "";
       putBytes("Attribute Id", getBytes(x, 2), name);
