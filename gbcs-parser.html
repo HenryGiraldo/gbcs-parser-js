@@ -2408,8 +2408,8 @@ function parseGbcsMessage(text) {
       },
     };
     var id = x.input[x.index] * 256 + x.input[x.index + 1];
-    var cosemClass = classes[id] || { name:"", attributes:[], methods:[], instances:{} };
-    putBytes("Class Id", getBytes(x, 2), cosemClass.name);
+    var cosemClass = classes[id] || { name:"IC " + id, attributes:[], methods:[], instances:{} };
+    putBytes("┌ Class Id", getBytes(x, 2), "┌ " + cosemClass.name);
     return cosemClass;
   }
 
@@ -2430,19 +2430,19 @@ function parseGbcsMessage(text) {
     var name = formatObis(x)
     if (cosemInstance != undefined)
       name = name + " - " + cosemInstance;
-    putBytes("Instance Id", getBytes(x, 6), name);
+    putBytes("├ Instance Id", getBytes(x, 6), "├ " + name);
   }
 
   function parseDlmsCosemAttributeId(x, cosemClass) {
     var id = x.input[x.index];
-    var name = cosemClass.attributes[id - 2] || "";
-    putBytes("Attribute Id", getBytes(x, 1), name);
+    var name = cosemClass.attributes[id - 2] || "Attribute " + id;
+    putBytes("└ Attribute Id", getBytes(x, 1), "└ " + name);
   }
 
   function parseDlmsCosemMethodId(x, cosemClass) {
     var id = x.input[x.index];
-    var name = cosemClass.methods[id - 1] || "";
-    putBytes("Method Id", getBytes(x, 1), name);
+    var name = cosemClass.methods[id - 1] || "Method " + id;
+    putBytes("└ Method Id", getBytes(x, 1), "└ " + name);
   }
 
   function parseDlmsSelectiveAccessDescriptor(x) {
