@@ -35,6 +35,8 @@ th { border: 1px solid #009ee2; background-color: #009ee2; color: #fff; font-wei
 th.attribute { background-color: #60b8dd; }
 td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-space: pre-wrap; }
 div.bit { display: inline; cursor: help; }
+th.gbt { background-color: #10a57e; border: 1px solid #10a57e; }
+th.empty { background-color: #ffffff; border-left: none; border-right: none; }
 </style>
 </head>
 <body>
@@ -101,6 +103,14 @@ function parseGbcsMessage(text) {
       var gbt = [];
       do {
         var block = parseGeneralBlockTransfer(x);
+        if (block.number > 255 || block.lengt > 1200) {
+          // something is wrong, fail
+          putUnparsedBytes(x);
+          break;
+        }
+        if (x.end - x.index > 0) {
+          putSeparator("<br>", "empty");
+        }
         if (block.number > 0 && block.len > 0) {
           gbt[block.number - 1] = block;
         }
@@ -251,7 +261,8 @@ function parseGbcsMessage(text) {
           break;
         }
       }
-      putSeparator(getLink("GBT Reconstructed Data", "#" + full, "plain"));
+      putSeparator("<br>", "empty");
+      putSeparator(getLink("GBT Reconstructed Data", "#" + full, "plain"), "gbt");
       output += parseGbcsMessage(full);
     }
   }
