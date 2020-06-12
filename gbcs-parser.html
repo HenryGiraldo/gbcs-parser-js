@@ -34,9 +34,9 @@ tr:nth-child(odd) { background-color: #f0f8ff; }
 th { border: 1px solid #009ee2; background-color: #009ee2; color: #fff; font-weight: bold; }
 th.attribute { background-color: #60b8dd; }
 td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-space: pre-wrap; }
-div.bit { display: inline; cursor: help; }
 th.gbt { background-color: #10a57e; border: 1px solid #10a57e; }
 th.empty { background-color: #ffffff; border-left: none; border-right: none; }
+div.tooltip { display: inline; cursor: help; }
 </style>
 </head>
 <body>
@@ -83,6 +83,14 @@ function escapeHtml(unsafe) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function tooltip(text, tip) {
+  return '<div class="tooltip" title="' + tip + '">' + text + '</div>';
+}
+
+function toHex(number, bits) {
+  return "0x" + (number + Math.pow(2, bits)).toString(16).toUpperCase().substr(-bits / 4);
 }
 
 function parseGbcsMessage(text) {
@@ -211,7 +219,7 @@ function parseGbcsMessage(text) {
     putBytes("Recipient System Title", getBytes(x, 9));
     putBytes("Date Time", getBytes(x, 1));
     putBytes("Other Info Length", getBytes(x, 1));
-    parseMessageCode(x);
+    parseMessageCode(" Message Code", x);
     putBytes("Key Info", getBytes(x, 1));
     parseEncodedLength(x, "Ciphered Service Length");
     putBytes("Security Header", getBytes(x, 5));
@@ -222,9 +230,9 @@ function parseGbcsMessage(text) {
     var streaming = (blockControl >> 6) & 1;
     var window = blockControl & 0x3f;
     putBytes("Block Control", getBytes(x, 1), "Last Block: " + lastBlock + ", Streaming: " + streaming + ", Window: " + window);
-    var blockNumber = x.input[x.index] * 256 + x.input[x.index + 1];
+    var blockNumber = parseNumber(x, 2);
     putBytes("Block Number", getBytes(x, 2), blockNumber);
-    var blockNumberAck = x.input[x.index] * 256 + x.input[x.index + 1];
+    var blockNumberAck = parseNumber(x, 2);
     putBytes("Block Number Ack", getBytes(x, 2), blockNumberAck);
     var blockDataLen = parseEncodedLength(x, "Block Data Length");
     var blockData = peekBytes(x, blockDataLen);
@@ -275,18 +283,18 @@ function parseGbcsMessage(text) {
     parseCounter("Originator Counter", x);
     putBytes("Originator System Title", getBytes(x, 9));
     putBytes("Recipient System Title", getBytes(x, 9));
-    parseDlmsOctetString(x, "Date Time", true);
+    parseDlmsOctetString(x, "Date Time", false);
     var otherInfoLen = parseEncodedLength(x, "Other Information Length");
     var otherInfo = getBytes(x, otherInfoLen);
-    var messageCode = parseMessageCode(otherInfo);
+    var messageCode = parseMessageCode(" Message Code", otherInfo);
     if (otherInfoLen >= 10) {
-      putBytes("Supplementary Remote Party ID", getBytes(otherInfo, 8));
+      putBytes(" Supplementary Remote Party ID", getBytes(otherInfo, 8));
       if (otherInfoLen >= 18) {
-        parseCounter("Supplementary Remote Party Counter", otherInfo);
+        parseCounter(" Supplementary Remote Party Counter", otherInfo);
         if (otherInfoLen == 26) {
-          parseCounter("Supplementary Originator Counter", otherInfo);
+          parseCounter(" Supplementary Originator Counter", otherInfo);
         } else if (otherInfoLen > 26) {
-          parseCertificate(otherInfo, "Supplementary Remote Party Key Agreement Certificate");
+          parseCertificate(otherInfo, " Supplementary Remote Party Key Agreement Certificate");
         }
       }
     }
@@ -367,9 +375,14 @@ function parseGbcsMessage(text) {
         pemContents = pem.substring(pemHeader.length, pem.length - pemFooter.length);
       }
       // Try parsing the public key even if it does not have header/footer
-      const binaryDerString = window.atob(pemContents);
-      const binaryDer = str2u8array(binaryDerString);
-      return binaryDer;
+      try {
+        // TODO: import hex encoded keys
+        const binaryDerString = window.atob(pemContents);
+        const binaryDer = str2u8array(binaryDerString);
+        return binaryDer;
+      } catch (e) {
+        return null;
+      }
     }
 
     function publicKeyFromCert(pem) {
@@ -404,7 +417,7 @@ function parseGbcsMessage(text) {
       derKey = publicKeyFromPem(pem);
 
       window.crypto.subtle.importKey(
-        "spki",
+        "spki",   // TODO: "raw" (omit algorithm identifier)
         derKey,
         { name: "ECDSA", namedCurve: "P-256" },
         true,
@@ -743,20 +756,9 @@ function parseGbcsMessage(text) {
   }
 
   function parseEncodedLength(x, name) {
-    var value = x.input[x.index];
-    var bytes = 1;
-    if (value == 0x81) {
-      value = x.input[x.index + 1];
-      bytes = 2;
-    } else if (value == 0x82) {
-      value = x.input[x.index + 1] * 0x100 + x.input[x.index + 2];
-      bytes = 3;
-    } else if (value == 0x83) {
-      value = x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
-      bytes = 4;
-    }
-    putBytes(name, getBytes(x, bytes), value);
-    return value;
+    var lenSz = parseLength(x, 0);
+    putBytes(name, getBytes(x, lenSz.size), lenSz.length);
+    return lenSz.length;
   }
 
   function parseCraFlag(x) {
@@ -788,7 +790,7 @@ function parseGbcsMessage(text) {
     return decimalString;
   }
 
-  function parseMessageCode(x) {
+  function parseMessageCode(name, x) {
     var usecases = {
       0x0001: "CCS01 Add Device to CHF device log",
       0x0002: "CCS02 Remove device from CHF device log",
@@ -1013,8 +1015,8 @@ function parseGbcsMessage(text) {
       0x1000: "Generic Critical Alert",
       0x1001: "Generic Non Critical Alert",
     };
-    var messageCode = x.input[x.index] * 256 + x.input[x.index + 1];
-    putBytes("Message Code", getBytes(x, 2), usecases[messageCode]);
+    var messageCode = parseNumber(x, 2);
+    putBytes(name, getBytes(x, 2), usecases[messageCode]);
     return messageCode;
   }
 
@@ -1610,33 +1612,17 @@ function parseGbcsMessage(text) {
   }
 
   function parseCertificate(x, name) {
-    var length = x.input[x.index + 1];
-    var header = 2;
-    if (length == 0x81) {
-      length = x.input[x.index + 2];
-      header = 3;
-    } else if (length == 0x82) {
-      length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
-      header = 4;
-    }
-    var decoder = getCertificateDecoder("Decode certificate", x, header + length);
-    putBytes(name || "Certificate", getBytes(x, header + length), decoder);
+    var lenSz = parseLength(x, 1);
+    var decoder = getCertificateDecoder("Decode certificate", x, 1 + lenSz.size + lenSz.length);
+    putBytes(name || "Certificate", getBytes(x, 1 + lenSz.size + lenSz.length), decoder);
   }
 
   // ASN.1 Types
 
   function parseSequence(x, name) {
-    var length = x.input[x.index + 1];
-    var bytes = 2;
-    if (length == 0x81) {
-      length = x.input[x.index + 2];
-      bytes = 3;
-    } else if (length == 0x82) {
-      length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
-      bytes = 4;
-    }
-    putBytes(name, getBytes(x, bytes));
-    return getBytes(x, length);
+    var lenSz = parseLength(x, 1);
+    putBytes(name, getBytes(x, 1 + lenSz.size));
+    return getBytes(x, lenSz.length);
   }
 
   function parseSequenceOf(x, name, parse) {
@@ -1649,16 +1635,14 @@ function parseGbcsMessage(text) {
   function parseInteger(x, name, values) {
     var value = 0;
     var length = x.input[x.index + 1];
-    for (var i = 0; i < length; i++)
-      value = value * 256 + x.input[x.index + 2 + i];
+    value = parseNumber(x, length, 2);
     putBytes(name, getBytes(x, 2 + length), values && values[value] || value);
   }
 
   function parseAsn1AlertCode(x) {
     var alertCode = 0;
     var length = x.input[x.index + 1];
-    for (var i = 0; i < length; i++)
-      alertCode = alertCode * 256 + x.input[x.index + 2 + i];
+    alertCode = parseNumber(x, length, 2);
     putBytes("Alert Code", getBytes(x, 2 + length), getAlertCodeName(alertCode));
   }
 
@@ -1667,16 +1651,8 @@ function parseGbcsMessage(text) {
   }
 
   function parseDerOctetString(x, name) {
-    var length = x.input[x.index + 1];
-    var bytes = 2;
-    if (length == 0x81) {
-      length = x.input[x.index + 2];
-      bytes = 3;
-    } else if (length == 0x82) {
-      length = x.input[x.index + 2] * 256 + x.input[x.index + 3];
-      bytes = 4;
-    }
-    putBytes(name, getBytes(x, bytes + length));
+    var lenSz = parseLength(x, 1);
+    putBytes(name, getBytes(x, 1 + lenSz.size + lenSz.length));
   }
 
   function parseGeneralizedTime(x, name) {
@@ -1720,7 +1696,7 @@ function parseGbcsMessage(text) {
   function parseDlmsDataNotificationGbcsAlert(x) {
     putBytes("DLMS Data Notification", getBytes(x, 8));
     parseDlmsAlertCode(x);
-    parseDlmsOctetString(x, "Time Stamp");
+    parseDlmsOctetString(x, "Time Stamp", true);
     while (x.index < x.end) {
       parseDlmsData(x);
     }
@@ -1765,9 +1741,9 @@ function parseGbcsMessage(text) {
   function parseDlmsFutureDatedAlert(x) {
     putBytes("DLMS Data Notification (Future Dated Alert)", getBytes(x, 8));
     parseDlmsAlertCode(x);
-    parseDlmsOctetString(x, "Time Stamp");
+    parseDlmsOctetString(x, "Time Stamp", true);
     putBytes("Future Dated Alert Payload", getBytes(x, 2));
-    parseMessageCode(x);
+    parseMessageCode("Message Code", x);
     parseCounter("Originator Counter", x);
     parseDlmsCosemAttributeDescriptor(x);
   }
@@ -1781,9 +1757,7 @@ function parseGbcsMessage(text) {
   }
 
   function parseDlmsData(x, indent) {
-    if (indent == undefined) {
-      indent = "";
-    }
+    indent = indent || "";
     var choice = x.input[x.index];
     if (choice == 0) {
       putBytes(indent + "Null", getBytes(x, 1));
@@ -1800,60 +1774,43 @@ function parseGbcsMessage(text) {
         parseDlmsData(x, indent + " ");
       }
     } else if (choice == 3) {
-      var value = x.input[x.index + 1] ? "True" : "False";
-      putBytes(indent + "Boolean", getBytes(x, 2), value);
+      parseDlmsBoolean(x, indent + "Boolean", true);
     } else if (choice == 4) {
-      parseDlmsBitString(x, indent + "Bit String");
+      parseDlmsBitString(x, indent + "Bit String", true);
     } else if (choice == 5) {
-      var value = x.input[x.index + 1] * 0x1000000 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
-      if (value > 0x7fffffff) {
-        value -= 0x100000000;
-      }
-      putBytes(indent + "Double Long", getBytes(x, 5), value);
+      parseDlmsDoubleLong(x, indent + "Double Long", true);
     } else if (choice == 6) {
-      var value = x.input[x.index + 1] * 0x1000000 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
-      putBytes(indent + "Double Long Unsigned", getBytes(x, 5), value);
+      parseDlmsDoubleLongUnsigned(x, indent + "Double Long Unsigned", true);
     } else if (choice == 9) {
-      parseDlmsOctetString(x, indent + "Octet String");
+      parseDlmsOctetString(x, indent + "Octet String", true);
     } else if (choice == 10) {
-      parseDlmsOctetString(x, indent + "Visible String");
+      parseDlmsOctetString(x, indent + "Visible String", true);
     } else if (choice == 15) {
-      var value = x.input[x.index + 1];
-      if (value > 0x7f) {
-        value -= 0x100;
-      }
-      putBytes(indent + "Integer", getBytes(x, 2), value);
+      parseDlmsInteger(x, indent + "Integer", true);
     } else if (choice == 16) {
-      var value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
-      if (value > 0x7fff) {
-        value -= 0x10000;
-      }
-      putBytes(indent + "Long", getBytes(x, 3), value);
+      parseDlmsLong(x, indent + "Long", true);
     } else if (choice == 17) {
-      var value = x.input[x.index + 1];
-      putBytes(indent + "Unsigned", getBytes(x, 2), value);
+      parseDlmsUnsigned(x, indent + "Unsigned", true);
     } else if (choice == 18) {
-      parseDlmsLongUnsigned(x, indent + "Long Unsigned");
+      parseDlmsLongUnsigned(x, indent + "Long Unsigned", true);
     } else if (choice == 19) {
       parseDlmsCompactArray(x, indent + "Compact Array", indent);
     } else if (choice == 22) {
-      putBytes(indent + "Enum", getBytes(x, 2));
+      parseDlmsEnum(x, indent + "Enum", true);
     } else {
       throw "TODO: DLMS Data CHOICE " + choice;
     }
   }
 
-  function parseDlmsBitString(x, name, firstSkipped) {
-    if (firstSkipped) {
-      x.index--;
-    }
-    var bitlen = x.input[x.index + 1];
-    var bytelen = 2;
+  function parseDlmsBitString(x, name, hasTag) {
+    var offset = hasTag ? 1 : 0;
+    var bitlen = x.input[x.index + offset];
+    var bytelen = 1;
     if (bitlen == 0x81) {
-      bitlen = x.input[x.index + 2];
+      bitlen = parseNumber(x, 1, offset);
       bytelen += 1;
     } else if (bitlen == 0x82) {
-      bitlen = x.input[x.index + 2] * 256 + x.input[x.index + 3];
+      bitlen = parseNumber(x, 2, offset);
       bytelen += 2;
     }
     var value = "";
@@ -1861,11 +1818,11 @@ function parseGbcsMessage(text) {
     var rem = bitlen - nfull * 8;
 
     function prettybit(index, bit) {
-      return '<div class="bit" title="Bit #' + index + '">' + bit + '</div>';
+      return tooltip(bit, "Bit #" + index);
     }
     for (var i = 0; i < nfull; i++) {
       // full byte
-      var b = x.input[x.index + bytelen + i];
+      var b = x.input[x.index + offset + bytelen + i];
       for (var j = 0; j < 8; j++) {
         value += prettybit(i * 8 + j, (b >> (7 - j)) & 1);
       }
@@ -1873,22 +1830,18 @@ function parseGbcsMessage(text) {
     }
     if (rem > 0) {
       // partial byte, MSB-aligned
-      var b = x.input[x.index + bytelen + nfull];
+      var b = x.input[x.index + offset + bytelen + nfull];
       for (var j = 0; j < rem; j++) {
         value += prettybit(i * 8 + j, (b >> (7 - j)) & 1);
       }
     }
 
     bytelen += Math.floor((bitlen + 7) / 8);
-    if (firstSkipped) {
-      x.index++;
-      bytelen--;
-    }
-    putBytes(name, getBytes(x, bytelen), value);
+    putBytes(name, getBytes(x, offset + bytelen), value);
   }
 
   function getDlmsDate(x) {
-    var year = x.input[x.index + 2] << 8 | x.input[x.index + 3];
+    var year = parseNumber(x, 2, 2);
     var month = x.input[x.index + 4];
     var dayOfMonth = x.input[x.index + 5];
     var dayOfWeek = x.input[x.index + 6];
@@ -1973,7 +1926,7 @@ function parseGbcsMessage(text) {
       return true;
     }
 
-    var dev = x.input[x.index + 11] << 8 | x.input[x.index + 12];
+    var dev = parseNumber(x, 2, 11);
     var clk = x.input[x.index + 13];
     if (dev == 0x8000 && clk == 0xFF) {
       var dateTimeSlice = x.input.subarray(x.index + 2, x.index + 11);
@@ -2003,21 +1956,13 @@ function parseGbcsMessage(text) {
     return text;
   }
 
-  function parseDlmsOctetString(x, name, firstSkipped) {
-    if (firstSkipped) {
-      x.index--;
-    }
-    var len = x.input[x.index + 1];
-    if (len == 0x81) {
-      len = 1 + x.input[x.index + 2];
-    } else if (len == 0x82) {
-      len = 2 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
-    } else if (len == 0x83) {
-      len = 3 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x100 + x.input[x.index + 4];
-    }
+  function parseDlmsOctetString(x, name, hasTag) {
+    var offset = hasTag ? 1 : 0;
+    var lenSz = parseLength(x, offset);
+    var len = lenSz.length;
     var stringLike = true;
     for (var i = 0; i < len; i++) {
-      var c = x.input[x.index + 2 + i];
+      var c = x.input[x.index + offset + lenSz.size + i];
       if (c < 0x20 || c > 0x7E) {
         stringLike = false;
         break;
@@ -2026,7 +1971,7 @@ function parseGbcsMessage(text) {
     var text = "";
     if (len > 1 && stringLike) {
       for (var i = 0; i < len; i++) {
-        text += String.fromCharCode(x.input[x.index + 2 + i]);
+        text += String.fromCharCode(x.input[x.index + offset + lenSz.size + i]);
       }
       text = '"' + escapeHtml(text) + '"';
     } else if (len == 4) {
@@ -2038,28 +1983,97 @@ function parseGbcsMessage(text) {
     } else if (len == 6) {
       text = getDlmsObis(x);
     }
-    var offset = 2;
-    if (firstSkipped) {
-        x.index++;
-        offset--;
-    }
-    putBytes(name, getBytes(x, offset + len), text);
+    putBytes(name, getBytes(x, offset + lenSz.size + len), text);
   }
 
-  function parseDlmsLongUnsigned(x, name) {
-    var value = x.input[x.index + 1] * 256 + x.input[x.index + 2];
-    putBytes(name, getBytes(x, 3), value);
+  function parseNumber(x, size, offset) {
+    // XXX Max safe integer in JavaScript is 2^53-1, can't handle size > 6
+    offset = offset || 0;
+    var value = 0;
+    for (var i = 0; i < size; i++) {
+      value *= 0x100;
+      value += x.input[x.index + offset + i];
+    }
+    return value;
+  }
+
+  function parseNumberLE(x, size, offset) {
+    // XXX Max safe integer in JavaScript is 2^53-1, can't handle size > 6
+    offset = offset || 0;
+    var value = 0;
+    for (var i = size; i > 0; i--) {
+      value *= 0x100;
+      value += x.input[x.index + offset + i - 1];
+    }
+    return value;
+  }
+
+  function parseLength(x, offset) {
+    offset = offset || 0;
+    var len = x.input[x.index + offset];
+    var size = 1;
+    if (len & 0x80) {
+      // Multi-byte length, limit to 3 bytes
+      size += len & 3;
+      len = parseNumber(x, len & 3, offset + 1);
+    }
+    return { length: len, size: size };
+  }
+
+  function parseDlmsBoolean(x, name, hasTag) {
+    var offset = hasTag ? 1 : 0;
+    var value = x.input[x.index + offset] ? "True" : "False";
+    putBytes(name, getBytes(x, offset + 1), value);
+  }
+
+  function parseDlmsNumber(x, name, size, hasTag, hasSign) {
+    var offset = hasTag ? 1 : 0;
+    var value = parseNumber(x, size, offset);
+    if (hasSign && value > Math.abs(1 << (size * 8 - 1)) - 1) {
+      value -= 1 << (size * 8);
+    }
+    value = tooltip(value, toHex(value, size * 8));
+    putBytes(name, getBytes(x, offset + size), value);
+  }
+
+  function parseDlmsInteger(x, name, hasTag) {
+    parseDlmsNumber(x, name, 1, hasTag, true);
+  }
+
+  function parseDlmsUnsigned(x, name, hasTag) {
+    parseDlmsNumber(x, name, 1, hasTag, false);
+  }
+
+  function parseDlmsLong(x, name, hasTag) {
+    parseDlmsNumber(x, name, 2, hasTag, true);
+  }
+
+  function parseDlmsLongUnsigned(x, name, hasTag) {
+    parseDlmsNumber(x, name, 2, hasTag, false);
+  }
+
+  function parseDlmsDoubleLong(x, name, hasTag) {
+    parseDlmsNumber(x, name, 4, hasTag, true);
+  }
+
+  function parseDlmsDoubleLongUnsigned(x, name, hasTag) {
+    parseDlmsNumber(x, name, 4, hasTag, false);
+  }
+
+  function parseDlmsEnum(x, name, hasTag, values) {
+    var offset = hasTag ? 1 : 0;
+    var value = parseNumber(x, 1, offset);
+    var notes = values && values[value] || value;
+    putBytes(name, getBytes(x, offset + 1), notes);
   }
 
   function parseDlmsAlertCode(x) {
-    var alertCode = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+    var alertCode = parseNumber(x, 2, 1);
     putBytes("Alert Code", getBytes(x, 3), getAlertCodeName(alertCode));
   }
 
   function parseDlmsCompactArray(x, name, indent) {
-    if (indent == undefined) {
-      indent = "";
-    }
+    indent = indent || "";
     putBytes(name, getBytes(x, 1));
     putBytes(indent + " Type Description", getBytes(x, 0));
     var typeDescription = parseDlmsTypeDescription(x, indent + "  ");
@@ -2070,7 +2084,7 @@ function parseGbcsMessage(text) {
     var choice = x.input[x.index];
     var typeDescription = { choice: choice, children: null };
     if (choice == 1) {  // array
-      var numberOfElements = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      var numberOfElements = parseNumber(x, 2, 1);
       putBytes(indent + "Array of " + numberOfElements, getBytes(x, 3));
       var t = parseDlmsTypeDescription(x, indent + " ");
       typeDescription.children = { number: numberOfElements, type: t };
@@ -2114,10 +2128,10 @@ function parseGbcsMessage(text) {
     var arrayContentsLen = x.input[x.index];
     var bytes = 1;
     if (arrayContentsLen == 0x81) {
-      arrayContentsLen = x.input[x.index + 1];
+      arrayContentsLen = parseNumber(x, 1, 1);
       bytes = 2;
     } else if (arrayContentsLen == 0x82) {
-      arrayContentsLen = x.input[x.index + 1] * 256 + x.input[x.index + 2];
+      arrayContentsLen = parseNumber(x, 2, 1);
       bytes = 3;
     }
     putBytes(indent + "Contents", getBytes(x, bytes));
@@ -2147,43 +2161,27 @@ function parseGbcsMessage(text) {
           parseDlmsTypeDescriptionContentsData(indent + " ", x, t);
         }
       } else if (choice == 3) { // boolean
-        var value = x.input[x.index] ? "True" : "False"
-        putBytes(indent + "Boolean", getBytes(x, 1), value);
+        parseDlmsBoolean(x, indent + "Boolean", false);
       } else if (choice == 4) { // bit-string
-        parseDlmsBitString(x, indent + "Bit String", true);
+        parseDlmsBitString(x, indent + "Bit String", false);
       } else if (choice == 5) { // double-long
-        var value = x.input[x.index] * 0x1000000 + x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
-        if (value > 0x7fffffff) {
-          value -= 0x100000000;
-        }
-        putBytes(indent + "Double Long", getBytes(x, 4), value);
+        parseDlmsDoubleLong(indent + "Double Long", false);
       } else if (choice == 6) { // double-long-unsigned
-        var value = x.input[x.index] * 0x1000000 + x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
-        putBytes(indent + "Double Long Unsigned", getBytes(x, 4), value);
+        parseDlmsDoubleLongUnsigned(x, indent + "Double Long Unsigned", false);
       } else if (choice == 9) { // octet-string
-        parseDlmsOctetString(x, indent + "Octet String", true);
+        parseDlmsOctetString(x, indent + "Octet String", false);
       } else if (choice == 10) { // visible-string
-        parseDlmsOctetString(x, indent + "Visible String", true);
+        parseDlmsOctetString(x, indent + "Visible String", false);
       } else if (choice == 15) { // integer
-        var value = x.input[x.index];
-        if (value > 0x7f) {
-          value -= 0x100;
-        }
-        putBytes(indent + "Integer", getBytes(x, 1), value);
+        parseDlmsInteger(x, indent + "Integer", false);
       } else if (choice == 16) { // long
-        var value = x.input[x.index] * 256 + x.input[x.index + 1];
-        if (value > 0x7fff) {
-          value -= 0x10000;
-        }
-        putBytes(indent + "Long", getBytes(x, 2), value);
+        parseDlmsLong(indent + "Long", false);
       } else if (choice == 17) { // unsigned
-        var value = x.input[x.index];
-        putBytes(indent + "Unsigned", getBytes(x, 1), value);
+        parseDlmsUnsigned(x, indent + "Unsigned", false);
       } else if (choice == 18) { // long-unsigned
-        var value = x.input[x.index] * 256 + x.input[x.index + 1];
-        putBytes(indent + "Long Unsigned", getBytes(x, 2), value);
+        parseDlmsLongUnsigned(x, indent + "Long Unsigned", false);
       } else if (choice == 22) { // enum
-        putBytes(indent + "Enum", getBytes(x, 1));
+        parseDlmsEnum(x, indent + "Enum", false);
       } else {
         throw "TODO: DLMS Data CHOICE (compact array)" + choice;
       }
@@ -2419,7 +2417,7 @@ function parseGbcsMessage(text) {
         },
       },
     };
-    var id = x.input[x.index] * 256 + x.input[x.index + 1];
+    var id = parseNumber(x, 2);
     var cosemClass = classes[id] || { name:"IC " + id, attributes:[], methods:[], instances:{} };
     putBytes("┌ Class Id", getBytes(x, 2), "┌ " + cosemClass.name);
     return cosemClass;
@@ -2432,12 +2430,7 @@ function parseGbcsMessage(text) {
   }
 
   function parseDlmsCosemInstanceId(x, cosemClass) {
-    var id = x.input[x.index] * 0x10000000000
-           + x.input[x.index + 1] * 0x100000000
-           + x.input[x.index + 2] * 0x1000000
-           + x.input[x.index + 3] * 0x10000
-           + x.input[x.index + 4] * 0x100
-           + x.input[x.index + 5];
+    var id = parseNumber(x, 6);
     var cosemInstance = cosemClass.instances[id];
     var name = formatObis(x)
     if (cosemInstance != undefined)
@@ -2533,7 +2526,7 @@ function parseGbcsMessage(text) {
     parseGbzAlertCode(x);
     parseGbzTime(x, "Time Stamp");
     putBytes("Future Dated Alert Payload", getBytes(x, 1));
-    parseMessageCode(x);
+    parseMessageCode("Message Code", x);
     parseCounter("Originator Counter", x);
     var cluster = parseClusterId(x);
     var frameControl = x.input[x.index];
@@ -2568,8 +2561,8 @@ function parseGbcsMessage(text) {
   }
 
   function parseGbzAlertCode(x) {
-	var alertCode = x.input[x.index] << 8 | x.input[x.index + 1];
-	putBytes("Alert Code", getBytes(x, 2), getAlertCodeName(alertCode));
+    var alertCode = parseNumber(x, 2);
+    putBytes("Alert Code", getBytes(x, 2), getAlertCodeName(alertCode));
   }
 
   function parseGbzComponent(x) {
@@ -2583,7 +2576,7 @@ function parseGbcsMessage(text) {
     }
     var cluster = parseClusterId(x);
     // Extended Header GBZ Command Length
-    var extendedLen = x.input[x.index] * 256 + x.input[x.index + 1];
+    var extendedLen = parseNumber(x, 2);
     putBytes("Length", getBytes(x, 2), extendedLen);
     var y = getBytes(x, extendedLen);
     try {
@@ -2598,7 +2591,7 @@ function parseGbcsMessage(text) {
       putBytes("Sequence Number", getBytes(y, 1));
       var command = parseCommandId(y, frameControl, cluster);
       if (controlField & 0x02) {  // encrypted payload
-        var len = y.input[y.index] * 256 + y.input[y.index + 1];
+        var len = parseNumber(y, 2);
         putBytes("Ciphered Information Length", getBytes(y, 2), len);
         putBytes("Security Header", getBytes(y, 5));
         putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
@@ -2812,7 +2805,7 @@ function parseGbcsMessage(text) {
         },
       },
     };
-    var clusterId = x.input[x.index] * 256 + x.input[x.index + 1];
+    var clusterId = parseNumber(x, 2);
     var cluster = clusters[clusterId] ||  { name: "", attributes: {}, commands: {}, responses: {} };
     putBytes("Cluster Id", getBytes(x, 2), cluster.name);
     return cluster;
@@ -2849,7 +2842,7 @@ function parseGbcsMessage(text) {
 
   function parseZclReadAttributes(x, cluster) {
     while (x.index < x.end) {
-      var id = x.input[x.index] + x.input[x.index + 1] * 256;
+      var id = parseNumberLE(x, 2);
       var name = cluster.attributes[id] || "";
       putBytes("Attribute Id", getBytes(x, 2), name);
     }
@@ -2858,7 +2851,7 @@ function parseGbcsMessage(text) {
   function parseZclReadAttributesResponse(x, cluster) {
     for (var i = 1; x.index < x.end; i++) {
       putSeparator("Attribute " + i, "attribute");
-      var id = x.input[x.index] + x.input[x.index + 1] * 256;
+      var id = parseNumberLE(x, 2);
       var name = cluster.attributes[id] || "";
       putBytes("Attribute Id", getBytes(x, 2), name);
       var status = parseZclStatusCode(x);
@@ -3303,7 +3296,7 @@ function parseGbcsMessage(text) {
     parseZclUint(8, x, "Number of Commands");
     var calendarType = parseZclCalendarUint(8, x, "Calendar Type");
     for (var i = 1; i <= entries; i++) {
-      var dec = x.input[x.index] + x.input[x.index + 1] * 256;
+      var dec = parseNumberLE(x, 2);
       var hour = Math.floor(dec / 60);
       if (hour < 10)
         hour = "0" + hour;
@@ -3459,19 +3452,15 @@ function parseGbcsMessage(text) {
   function parseZclUint(bits, x, name) {
     var value = 0;
     var bytes = bits / 8;
-    for (var i = 0; i < bytes; i++) {
-      value = value * 256 + x.input[x.index + bytes - i - 1];
-    }
-    putBytes(name, getBytes(x, bytes), value);
+    value = parseNumberLE(x, bytes);
+    putBytes(name, getBytes(x, bytes), tooltip(value, toHex(value, bits)));
     return value;
   }
 
   function parseZclUintHex(bits, x, name) {
     var value = 0;
     var bytes = bits / 8;
-    for (var i = 0; i < bytes; i++) {
-      value = value * 256 + x.input[x.index + bytes - i - 1];
-    }
+    value = parseNumberLE(x, bytes);
     putBytes(name, getBytes(x, bytes), "0x" + value.toString(16));
     return value;
   }
@@ -3498,7 +3487,7 @@ function parseGbcsMessage(text) {
   }
 
   function parseZclInt32(x, name) {
-    var value = x.input[x.index] + x.input[x.index + 1] * 256 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x1000000;
+    var value = parseNumberLE(x, 4);
     if (value > 0x7fffffff)
       value -= 0x100000000;
     putBytes(name, getBytes(x, 4), value);
@@ -3582,12 +3571,12 @@ function parseGbcsMessage(text) {
   }
 
   function parseGbzTime(x, name) {
-    var value = x.input[x.index] * 0x1000000 + x.input[x.index + 1] * 0x10000 + x.input[x.index + 2] * 0x100 + x.input[x.index + 3];
+    var value = parseNumber(x, 4);
     putBytes(name, getBytes(x, 4), toUtcTimeString(value));
   }
 
   function parseZclUtcTime(x, name) {
-    var value = x.input[x.index] + x.input[x.index + 1] * 256 + x.input[x.index + 2] * 0x10000 + x.input[x.index + 3] * 0x1000000;
+    var value = parseNumberLE(x, 4);
     putBytes(name, getBytes(x, 4), toUtcTimeString(value));
   }
 
