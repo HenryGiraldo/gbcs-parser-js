@@ -194,9 +194,9 @@ function parseGbcsMessage(text) {
 
   function getLink(name, loc, klass) {
     if (klass) {
-      return "<a class=\"" + klass + "\" href=\"" + loc + "\">" + name + "</a>";
+      return "<a class=\"" + klass + "\" href=\"" + loc + "\" target=\"_blank\">" + name + "</a>";
     }
-    return "<a href=\"" + loc + "\">" + name + "</a>";
+    return "<a href=\"" + loc + "\" target=\"_blank\">" + name + "</a>";
   }
 
   function parseGeneralCiphering(x) {
