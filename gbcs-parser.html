@@ -1840,11 +1840,11 @@ function parseGbcsMessage(text) {
     putBytes(name, getBytes(x, offset + bytelen), value);
   }
 
-  function getDlmsDate(x) {
-    var year = parseNumber(x, 2, 2);
-    var month = x.input[x.index + 4];
-    var dayOfMonth = x.input[x.index + 5];
-    var dayOfWeek = x.input[x.index + 6];
+  function getDlmsDate(x, offset) {
+    var year = parseNumber(x, 2, offset);
+    var month = x.input[x.index + offset + 2];
+    var dayOfMonth = x.input[x.index + offset + 3];
+    var dayOfWeek = x.input[x.index + offset + 4];
 
     //Day
     if (dayOfMonth == 0xFF)
@@ -1882,11 +1882,11 @@ function parseGbcsMessage(text) {
     return date
   }
 
-  function getDlmsTime(x) {
-    var hour = x.input[x.index + 2];
-    var mins = x.input[x.index + 3];
-    var sec  = x.input[x.index + 4];
-    var hsec = x.input[x.index + 5];
+  function getDlmsTime(x, offset) {
+    var hour = x.input[x.index + offset];
+    var mins = x.input[x.index + offset + 1];
+    var sec  = x.input[x.index + offset + 2];
+    var hsec = x.input[x.index + offset + 3];
 
     if (hour == 0xFF)
       hour = "Every hour";
@@ -1918,7 +1918,7 @@ function parseGbcsMessage(text) {
     return time
   }
 
-  function getDlmsLongDate(x) {
+  function getDlmsLongDate(x, offset) {
     function checkSameValue(arr, val) {
       for (var i = 0; i < arr.length; i++) {
         if (arr[i] != val) return false;
@@ -1926,10 +1926,10 @@ function parseGbcsMessage(text) {
       return true;
     }
 
-    var dev = parseNumber(x, 2, 11);
-    var clk = x.input[x.index + 13];
+    var dev = parseNumber(x, 2, offset + 9);
+    var clk = x.input[x.index + offset + 11];
     if (dev == 0x8000 && clk == 0xFF) {
-      var dateTimeSlice = x.input.subarray(x.index + 2, x.index + 11);
+      var dateTimeSlice = x.input.subarray(x.index + offset, x.index + offset + 9);
       if (checkSameValue(dateTimeSlice, 0x00)) {
         // for DLMS COSEM Commands Payloads, activation date-time(s) have the value 0x0000000000000000008000FF;
         return "NOW";
@@ -1940,19 +1940,17 @@ function parseGbcsMessage(text) {
       }
     }
 
-    var date = getDlmsDate(x);
-    x.index += 5;
-    var time = getDlmsTime(x);
-    x.index -= 5;
+    var date = getDlmsDate(x, offset);
+    var time = getDlmsTime(x, offset + 5);
     if (date && time)
       date += " " + time;
     return date
   }
 
-  function getDlmsObis(x) {
-    x.index += 2;
+  function getDlmsObis(x, offset) {
+    x.index += offset;
     text = formatObis(x);
-    x.index -= 2;
+    x.index -= offset;
     return text;
   }
 
@@ -1975,13 +1973,13 @@ function parseGbcsMessage(text) {
       }
       text = '"' + escapeHtml(text) + '"';
     } else if (len == 4) {
-      text = getDlmsTime(x);
+      text = getDlmsTime(x, offset + 1);
     } else if (len == 5) {
-      text = getDlmsDate(x);
+      text = getDlmsDate(x, offset + 1);
     } else if (len == 12) {
-      text = getDlmsLongDate(x);
+      text = getDlmsLongDate(x, offset + 1);
     } else if (len == 6) {
-      text = getDlmsObis(x);
+      text = getDlmsObis(x, offset + 1);
     }
     putBytes(name, getBytes(x, offset + lenSz.size + len), text);
   }
