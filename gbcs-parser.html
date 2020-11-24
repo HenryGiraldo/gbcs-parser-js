@@ -48,6 +48,8 @@ div.tooltip { display: inline; cursor: help; }
 <p>DLMS V3.1 Use Cases: <a href="dlms-use-cases.html">dlms-use-cases.html</a>
 <p>Service Request to Use Cases: <a href="service-request-use-cases.htm">service-request-use-cases.htm</a>
 <p>Source: <a href="https://github.com/HenryGiraldo/gbcs-parser-js">https://github.com/HenryGiraldo/gbcs-parser-js</a>
+<hr>
+<p>This parser is maintained thanks to the support of <a href="https://woodswallow.tech/">WoodSwallow</a> and <a href="https://www.edmi-meters.com/europe/">EDMI</a>.</p>
 <script>
 
 monthsInYear = {1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June",
@@ -464,19 +466,19 @@ function parseGbcsMessage(text) {
     if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
       throw new Error("This can't be an X.509 certificate. Wrong data type.");
     }
-    
+
     var cert = {asn1: asn1};  // Include the raw parser result for debugging
     var pieces = berListToJavaScript(asn1.contents);
     if (pieces.length !== 3) {
       throw new Error("Certificate contains more than the three specified children.");
     }
-    
+
     cert.tbsCertificate     = parseTBSCertificate(pieces[0]);
     cert.signatureAlgorithm = parseAlgorithmIdentifier(pieces[1]);
     cert.signatureValue     = parseSignatureValue(pieces[2]);
-    
+
     return cert;
-    
+
     function berListToJavaScript(byteArray) {
       var result = new Array();
       var nextPosition = 0;
@@ -487,7 +489,7 @@ function parseGbcsMessage(text) {
       }
       return result;
     }
-    
+
     function parseSignatureValue(asn1) {
       if (asn1.cls !== 0 || asn1.tag !== 3 || asn1.structured) {
         throw new Error("Bad signature value. Not a BIT STRING.");
@@ -496,14 +498,14 @@ function parseGbcsMessage(text) {
       sig.bits = berBitStringValue(asn1.contents);
       return sig;
     }
-    
+
     function berBitStringValue(byteArray) {
       return {
         unusedBits: byteArray[0],
         bytes: byteArray.subarray(1)
       };
     }
-    
+
     function parseAlgorithmIdentifier(asn1) {
       if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
         throw new Error("Bad algorithm identifier. Not a SEQUENCE.");
@@ -530,7 +532,7 @@ function parseGbcsMessage(text) {
       }
       return alg;
     }
-    
+
     function berObjectIdentifierValue(byteArray) {
       var oid = Math.floor(byteArray[0] / 40) + "." + byteArray[0] % 40;
       var position = 1;
@@ -546,7 +548,7 @@ function parseGbcsMessage(text) {
       }
       return oid;
     }
-    
+
     function parseTBSCertificate(asn1) {
       if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
         throw new Error("This can't be a TBSCertificate. Wrong data type.");
@@ -565,7 +567,7 @@ function parseGbcsMessage(text) {
       tbs.subjectPublicKeyInfo = parseSubjectPublicKeyInfo(pieces[6]);
       return tbs;  // Ignore optional fields for now
     }
-    
+
     function parseSubjectPublicKeyInfo(asn1) {
       if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
         throw new Error("Bad SPKI. Not a SEQUENCE.");
@@ -579,18 +581,18 @@ function parseGbcsMessage(text) {
       spki.bits = berBitStringValue(pieces[1].contents);
       return spki;
     }
-    
+
     // From https://blog.engelke.com/2014/10/17/parsing-ber-and-der-encoded-asn-1-objects/
     function berToJavaScript(byteArray) {
       "use strict";
       var result = {};
       var position = 0;
-      
+
       result.cls              = getClass();
       result.structured       = getStructured();
       result.tag              = getTag();
       var length              = getLength(); // As encoded, which may be special value 0
-      
+
       if (length === 0x80) {
         length = 0;
         while (byteArray[position + length] !== 0 || byteArray[position + length + 1] !== 0) {
@@ -602,22 +604,22 @@ function parseGbcsMessage(text) {
         result.byteLength   = position + length;
         result.contents     = byteArray.subarray(position, result.byteLength);
       }
-      
+
       result.raw              = byteArray.subarray(0, result.byteLength); // May not be the whole input array
       return result;
-      
+
       function getClass() {
         var cls = (byteArray[position] & 0xc0) / 64;
         // Consumes no bytes
         return cls;
       }
-      
+
       function getStructured() {
         var structured = ((byteArray[0] & 0x20) === 0x20);
         // Consumes no bytes
         return structured;
       }
-      
+
       function getTag() {
         var tag = byteArray[0] & 0x1f;
         position += 1;
@@ -632,10 +634,10 @@ function parseGbcsMessage(text) {
         }
         return tag;
       }
-      
+
       function getLength() {
         var length = 0;
-        
+
         if (byteArray[position] < 0x80) {
           length = byteArray[position];
           position += 1;
