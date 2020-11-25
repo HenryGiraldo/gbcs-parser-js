@@ -736,6 +736,8 @@ function parseGbcsMessage(text) {
         parseDlmsFutureDatedAlert(x);
       } else if (messageCode == 0x00CD) {  // Future Dated GBZ
         parseGbzFutureDatedAlertPayload(x);
+      } else if (messageCode == 0x00D5) {  // 8F84 Alert
+        parseFailureToDeliverRemotePartyToEsme(x);
       } else if (x.input[x.index] == 1 && x.input[x.index + 1] == 9) {
         if (craFlag == 3) {
           parseGbzAlertPayload(x);
@@ -1479,6 +1481,26 @@ function parseGbcsMessage(text) {
     parseGeneralizedTime(s, "Backup Date Time");
     parseSequenceOf(s, "Device Log Entries", parseDeviceLogEntry);
   }
+  
+  
+  // Alert 8F84
+
+  function parseRemotePartyMessage(x) {
+    var s = parseSequence(x, "Remote Party Message");
+    putBytes("Business Originator ID", getBytes(s, 8));
+    putBytes("Business Target ID", getBytes(s, 8));
+    parseCraFlag(s)
+    parseCounter("Originator Counter", s);
+  }
+
+  function parseFailureToDeliverRemotePartyToEsme(x) {
+    // Failure to Deliver Remote Party Message to ESME Alert
+    putBytes("DLMS Data Notification", getBytes(x, 8));
+    parseDlmsAlertCode(x);
+    parseDlmsOctetString(x, "Time Stamp", true);
+    parseRemotePartyMessage(x);
+  }
+
 
   // GBCS ASN.1 definitions used by multiple use cases
 
