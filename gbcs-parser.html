@@ -282,8 +282,12 @@ function parseGbcsMessage(text) {
     var signedDataStart = x.index + 1;
     putBytes("General Signing", getBytes(x, 2));
     var craFlag = parseCraFlag(x);
+    cipherInfo = {};
+    cipherInfo.origCounter = x.input.subarray(x.index, x.index + 8);
     parseCounter("Originator Counter", x);
+    cipherInfo.origSysTitle = x.input.subarray(x.index + 1, x.index + 9);
     putBytes("Originator System Title", getBytes(x, 9));
+    cipherInfo.recipSysTitle = x.input.subarray(x.index + 1, x.index + 9);
     putBytes("Recipient System Title", getBytes(x, 9));
     parseDlmsOctetString(x, "Date Time", false);
     var otherInfoLen = parseEncodedLength(x, "Other Information Length");
@@ -318,7 +322,9 @@ function parseGbcsMessage(text) {
           var pubkey = document.createElement("textarea");
           pubkey.id = "pub-key";
           pubkey.rows = "6";
-          pubkey.placeholder = "Paste here the digital signature certificate or public key in PEM format";
+          pubkey.placeholder =
+            "Paste here the digital signature certificate or public key in PEM format for "
+            + arrayToHex(cipherInfo.origSysTitle).toUpperCase() + ".";
           var button = document.createElement("button");
           button.innerText = "Verify";
           button.onclick = function() {
