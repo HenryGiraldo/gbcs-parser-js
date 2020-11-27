@@ -104,6 +104,7 @@ function toHex(number, bits) {
 function parseGbcsMessage(text) {
   var output = "";
   var sensitive = false;
+  var decryptionList = [];
 
   var x = parseHexString(text);
   if (x.input[0] != 0xDD && x.input[0] != 0xDF) {
@@ -138,6 +139,11 @@ function parseGbcsMessage(text) {
   } else {
     parseGeneralSigning(x);
   }
+
+  if (decryptionList.length > 0) {
+    handleDecryptGbcsData();
+  }
+
   return output;
 
   function putSeparator(title, klass) {
@@ -2005,15 +2011,28 @@ function parseGbcsMessage(text) {
     putBytes(" Encrypted DLMS Payload", getBytes(y, len - 5 - 12));
     putBytes(" AE MAC", getBytes(y, 12));
 
-    // TODO: may be better placed at the end of the message, after the MAC
-    sensitive = true;
-    putSeparator("Decryption inputs");
-    putBytes("AES key generation", getBytes(x, 0), '<div id="key-generation"></div>');
-    putBytes("AES key", getBytes(x, 0), '<div id="enc-input"></div>');
-    sensitive = false;
+    decryptGbcsData(ciphertextAndTag, function(yy) {
+      parseDlmsData(yy);
+      putUnparsedBytes(yy);
+    });
+  }
 
+  function decryptGbcsData(ciphertextAndTag, okCallback) {
     const decryptAnchor = "<tr id=\"decrypted-payload\">";
     output += decryptAnchor;
+
+    decryptionList.push(function(aesKey) {
+      decryptPayloadWithKey(ciphertextAndTag, aesKey, okCallback);
+    });
+  }
+
+  function handleDecryptGbcsData() {
+    putSeparator("&zwnj;", "empty");
+    sensitive = true;
+    putSeparator("Decryption inputs");
+    putBytes("AES key generation", getBytes(x, 0), '<div id="key-generation">Not supported</div>');
+    putBytes("AES key", getBytes(x, 0), '<div id="enc-input">Not supported</div>');
+    sensitive = false;
 
     // TODO: check key agreement and AES decryption instead
     execIfSignatureCheckIsAvailable(function() {
@@ -2068,24 +2087,28 @@ function parseGbcsMessage(text) {
         };
 
         decryptButton.onclick = function() {
+          var firstAnchor = document.getElementById("decrypted-payload");
+          var rect = firstAnchor.getBoundingClientRect();
+          var top = rect.top + window.pageYOffset;
+
           const key = document.getElementById("enc-aes-key").value.trim();
           var aesKey = parseHexString(key).input;
-          decryptPayloadWithKey(ciphertextAndTag, aesKey,
-            function (yy) {
-              parseDlmsData(yy);
-              putUnparsedBytes(yy);
-            });
+          decryptionList.forEach(function(cb) { cb(aesKey); });
           encAesKeyArea.readOnly = true;
           decryptButton.disabled = true;
           encPubKeyArea.readOnly = true;
           encPrvKeyArea.readOnly = true;
           generateKeyButton.disabled = true;
+
+          window.scrollTo({ top: top, left: 0, behavior: 'smooth' });
         };
 
+        keyGeneration.innerHTML = "";
         keyGeneration.appendChild(encPubKeyArea);
         keyGeneration.appendChild(encPrvKeyArea);
         keyGeneration.appendChild(generateKeyButton);
         keyGeneration.appendChild(status);
+        encInput.innerHTML = "";
         encInput.appendChild(encAesKeyArea);
         encInput.appendChild(decryptButton);
         encInput.appendChild(footer);
@@ -2933,7 +2956,8 @@ function parseGbcsMessage(text) {
     var y = getBytes(x, extendedLen);
     try {
       if (controlField & 0x02) {  // encrypted content
-        putBytes("Additional Header", getBytes(y, 2));
+        putBytes("Additional Header Control", getBytes(y, 1));
+        putBytes("Additional Header Frame Counter", getBytes(y, 1));
       } else if (controlField & 0x10) {
         parseGbzTime(y, "From Date Time");
       }
@@ -2946,8 +2970,18 @@ function parseGbcsMessage(text) {
         var len = parseNumber(y, 2);
         putBytes("Ciphered Information Length", getBytes(y, 2), len);
         putBytes("Security Header", getBytes(y, 5));
+        var ciphertextAndTag = y.input.subarray(y.index, y.index + len - 5);
         putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
         putBytes("AE MAC", getBytes(y, 12));
+
+        decryptGbcsData(ciphertextAndTag, function(yy) {
+          if (command && command.parse) {
+            command.parse(yy, cluster, frameControl);
+          } else {
+            putBytes("ZCL Payload", yy);
+          }
+          putUnparsedBytes(yy);
+        });
       } else {  // plaintext payload
         if (command && command.parse) {
           command.parse(y, cluster, frameControl);
