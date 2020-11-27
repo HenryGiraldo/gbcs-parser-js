@@ -36,6 +36,11 @@ th.attribute { background-color: #60b8dd; }
 td { border: 1px solid #009ee2; padding: 1px 2px; vertical-align: top; white-space: pre-wrap; }
 th.gbt { background-color: #10a57e; border: 1px solid #10a57e; }
 th.empty { background-color: #ffffff; border-left: none; border-right: none; }
+th.sensitive { background-color: #b072d6; border-color: #b072d6; }
+th.sensitive.attribute { background-color: #c69fdf; }
+tr.sensitive { background-color: #f0e0ff; }
+tr.sensitive:nth-child(even) { background-color: #fbf2ff; }
+tr.sensitive>td { border-color: #b072d6; }
 div.tooltip { display: inline; cursor: help; }
 </style>
 </head>
@@ -97,6 +102,8 @@ function toHex(number, bits) {
 
 function parseGbcsMessage(text) {
   var output = "";
+  var sensitive = false;
+
   var x = parseHexString(text);
   if (x.input[0] != 0xDD && x.input[0] != 0xDF) {
     // input could be base64 encoded
@@ -133,6 +140,9 @@ function parseGbcsMessage(text) {
   return output;
 
   function putSeparator(title, klass) {
+    if (sensitive) {
+      klass = klass && klass + " sensitive" || "sensitive";
+    }
     if (!klass) {
       output += '<tr><th colspan="3">' + title;
     } else {
@@ -141,7 +151,10 @@ function parseGbcsMessage(text) {
   }
 
   function putBytes(name, bytes, notes) {
-    output += "<tr><td>" + name + "<td>";
+    if (sensitive)
+      output += "<tr class=\"sensitive\"><td>" + name + "<td>";
+    else
+      output += "<tr><td>" + name + "<td>";
     var h = "0123456789ABCDEF";
     var n = bytes.end - bytes.index;
     for (var i = 0; i < n; i++) {
@@ -746,6 +759,8 @@ function parseGbcsMessage(text) {
         parseDlmsFirmwareDistributionReceiptAlert(x);
       } else if (messageCode == 0x00CF) {  // FW Distribution Receipt Alert GSME
         parseGbzFirmwareDistributionReceiptAlert(x);
+      } else if (messageCode == 0x0061) {  // ECS68
+        parseDlmsBillingDataLogAlert(x);
       } else if (messageCode == 0x00D5) {  // 8F84 Alert
         parseFailureToDeliverRemotePartyToEsme(x);
       } else if (x.input[x.index] == 1 && x.input[x.index + 1] == 9) {
@@ -757,7 +772,7 @@ function parseGbcsMessage(text) {
       } else if (x.input[x.index] == 0xD9) {
         parseDlmsAccessRequest(x);
       } else if (x.input[x.index] == 0xDA) {
-        parseDlmsAccessResponse(x);
+        parseDlmsAccessResponse(x, messageCode);
       } else if (x.input[x.index] == 0x0F) {
         parseDlmsDataNotificationGbcsAlert(x);
       } else {
@@ -1718,12 +1733,29 @@ function parseGbcsMessage(text) {
   function parseDlmsAccessRequest(x) {
     putBytes("DLMS Access Request", getBytes(x, 6));
     parseDlmsSequenceOf(x, "List of Access Request Specifications", parseDlmsAccessRequestSpecification);
+    // TODO: check for IC 0x001E (Data Protection), Method 1 (Get Protected Attributes)
     parseDlmsSequenceOf(x, "List of Data", parseDlmsData);
   }
 
-  function parseDlmsAccessResponse(x) {
+  function parseDlmsAccessResponse(x, messageCode) {
     putBytes("DLMS Access Response", getBytes(x, 7));
-    parseDlmsSequenceOf(x, "List of Access Response Data", parseDlmsData);
+    switch (messageCode) {
+      case 0x0027:  // ECS17b
+      case 0x0029:  // ECS17d
+      case 0x002A:  // ECS17e
+      case 0x002D:  // ECS19
+      case 0x002F:  // ECS20b
+      case 0x0030:  // ECS20c
+      case 0x0033:  // ECS21a
+      case 0x0034:  // ECS21b
+      case 0x0037:  // ECS22b
+      case 0x0060:  // ECS66
+        parseDlmsSequenceOf(x, "List of Access Response Data", parseDlmsProtectedAttributesResponse);
+        break;
+      default:
+        parseDlmsSequenceOf(x, "List of Access Response Data", parseDlmsData);
+        break;
+    }
     parseDlmsSequenceOf(x, "List of Access Response Specification", parseDlmsAccessResponseSpecification);
   }
 
@@ -1787,6 +1819,278 @@ function parseGbcsMessage(text) {
     parseDlmsAlertCode(x);
     parseDlmsOctetString(x, "Time Stamp", true);
     parseDlmsOctetString(x, "Calculated Manufacturer Hash", true);
+  }
+
+  function parseDlmsBillingDataLogAlert(x) {
+    putBytes("DLMS Data Notification", getBytes(x, 8));
+    parseDlmsAlertCode(x);
+    parseDlmsOctetString(x, "Time Stamp", true);
+    parseDlmsProtectedData(x);
+  }
+
+  function decryptPayloadWithKey(ciphertextTag, /* Uint8Array(16) */ aesKey, doneCb) {
+
+    function getAesKey(key) {
+      return window.crypto.subtle.importKey(
+        "raw",
+        key,
+        { name: "AES-GCM" },
+        true, //extractable
+        [ "decrypt" ]
+      );
+    }
+
+    function decrypt(key, ciphertext) {
+      var iv = new Uint8Array(12);
+      iv.set(cipherInfo.origSysTitle, 0);
+      iv.set([0, 0, 0, 0], 8);
+      return window.crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+          additionalData: new Uint8Array([0x31]),
+          tagLength: 96,
+        },
+        key,
+        ciphertext
+      );
+    }
+
+    function update(ok, value) {
+      var anchor = document.getElementById("decrypted-payload");
+      output = "";
+      sensitive = true;
+      putSeparator("Decrypted DLMS Payload");
+      if (ok) {
+        var yy = { input: new Uint8Array(value), index: 0, end: value.byteLength };
+        doneCb(yy);
+      } else {
+        console.log(value);
+        putBytes("Error decrypting", {end: 0, index: 0});
+      }
+      // update DOM
+      anchor.outerHTML = output;
+    }
+
+    getAesKey(aesKey)
+      .then(function (key) { return decrypt(key, ciphertextTag); })
+      .then(function (p) { update(true, p); })
+      .catch(function (e) { update(false, e); });
+  }
+
+  function deriveKeyFromPair(prvKey, pubKey, doneCb) {
+
+    // Not in Firefox yet https://bugzilla.mozilla.org/show_bug.cgi?id=1048931
+    function getPrivKey(pem) {
+      // fetch the part of the PEM string between header and footer
+      const pemHeader = "-----BEGIN PRIVATE KEY-----";
+      const pemFooter = "-----END PRIVATE KEY-----";
+      const pemContents = pem.trim().substring(pemHeader.length, pem.length - pemFooter.length);
+      // base64 decode the string to get the binary data
+      const binaryDerString = window.atob(pemContents);
+      // convert from a binary string to an ArrayBuffer
+      const binaryDer = str2u8array(binaryDerString);
+
+      return window.crypto.subtle.importKey(
+        "pkcs8",
+        binaryDer,
+        {
+          name: "ECDH",
+          namedCurve: "P-256"
+        },
+        false,
+        [ "deriveBits", "deriveKey" ]
+      );
+    }
+
+    function getPubKey(pubRaw) {
+      const pubHeader = "3059301306072a8648ce3d020106082a8648ce3d030107034200";
+      const pubKeyBytes = parseHexString(pubHeader + pubRaw).input;
+      return window.crypto.subtle.importKey(
+        "spki",
+        pubKeyBytes,
+        {
+          name: "ECDH",
+          namedCurve: "P-256"
+        },
+        false,
+        []
+      );
+    }
+
+    function performKeyAgreement(prvPem /* KRP */, pubRaw /* device */) {
+      return Promise.all([
+        getPrivKey(prvPem),
+        getPubKey(pubRaw)
+      ])
+      .then(function (keys) {
+        const prv = keys[0];
+        const pub = keys[1];
+        return deriveEcdh(prv, pub);
+      })
+      .then(deriveAesKey);
+    }
+
+    function deriveEcdh(prv, pub) {
+      return window.crypto.subtle.deriveBits(
+        {
+          name: "ECDH",
+          public: pub
+        },
+        prv,
+        256 // need 32 bytes
+      ).then(function (z) { return new Uint8Array(z); });
+    }
+
+    function deriveAesKey(Z) {
+      var otherInfo = new Uint8Array(33);
+      otherInfo.set([0x60, 0x85, 0x74, 0x06, 0x08, 0x03, 0x00], 0); // algorithm-id
+      otherInfo.set(cipherInfo.origSysTitle, 7);
+      otherInfo.set([0x09, 0x04], 7 + 8);
+      otherInfo.set(cipherInfo.origCounter, 7 + 8 + 2);
+      otherInfo.set(cipherInfo.recipSysTitle, 7 + 8 + 2 + 8);
+      return concatKdf(Z, otherInfo);
+    }
+
+    function concatKdf(Z, otherInfo) {
+      var data = new Uint8Array(4 + Z.byteLength + otherInfo.byteLength);
+      data.set([0, 0, 0, 1], 0);
+      data.set(Z, 4);
+      data.set(otherInfo, 4 + Z.byteLength);
+      return window.crypto.subtle.digest("SHA-256", data)
+        .then(function (digest) { return new Uint8Array(digest.slice(0, 16)); });
+    }
+
+    // Agree a key and pass it to the callback
+    performKeyAgreement(prvKey, pubKey)
+      .then(function (aesKey) { doneCb(true, aesKey); })
+      .catch(function (e) { doneCb(false, e); });
+  }
+
+  function parseProtectionParameters(x) {
+    var cipherInfo = {};
+    putBytes("Protection Parameters", getBytes(x, 4));
+    parseDlmsEnum(x, " Protection Type", true, { 2: "Authentication and Encryption" });
+    putBytes(" Protection Options", getBytes(x, 2));
+    cipherInfo.origCounter = x.input.subarray(x.index + 3, x.index + 11);
+    putBytes(" Transaction Id", getBytes(x, 11));
+    cipherInfo.origSysTitle = x.input.subarray(x.index + 2, x.index + 10);
+    putBytes(" Originator System Title", getBytes(x, 10));
+    cipherInfo.recipSysTitle = x.input.subarray(x.index + 2, x.index + 10);
+    putBytes(" Recipient System Title", getBytes(x, 10));
+    putBytes(" Other Information", getBytes(x, 2));
+    putBytes(" Key Info", getBytes(x, 2));
+    parseDlmsEnum(x, "  Key Info Type", true, { 2: "Agreed Key" });
+    putBytes("  Agreed Key Info Options", getBytes(x, 2));
+    putBytes("   Key Parameters", getBytes(x, 3), "C(0e, 2s ECC CDH)");
+    putBytes("   Key Ciphered Data", getBytes(x, 2));
+    return cipherInfo;
+  }
+
+  function parseDlmsProtectedAttributesResponse(x, indent) {
+    putBytes("Get Protected Attributes Response", getBytes(x, 2));
+    parseDlmsProtectedData(x);
+  }
+
+  function parseDlmsProtectedData(x) {
+    cipherInfo = parseProtectionParameters(x);
+    var lenSz = parseLength(x, 1);
+    var len = lenSz.length;
+    var off = lenSz.size + 1;
+    putBytes("Protected Attributes", getBytes(x, off));
+    var y = getBytes(x, len);
+    putBytes(" Security Header", getBytes(y, 5));
+    var ciphertextAndTag = y.input.subarray(y.index, y.index + len - 5);
+    putBytes(" Encrypted DLMS Payload", getBytes(y, len - 5 - 12));
+    putBytes(" AE MAC", getBytes(y, 12));
+
+    // TODO: may be better placed at the end of the message, after the MAC
+    sensitive = true;
+    putSeparator("Decryption inputs");
+    putBytes("AES key generation", getBytes(x, 0), '<div id="key-generation"></div>');
+    putBytes("AES key", getBytes(x, 0), '<div id="enc-input"></div>');
+    sensitive = false;
+
+    const decryptAnchor = "<tr id=\"decrypted-payload\">";
+    output += decryptAnchor;
+
+    // TODO: check key agreement and AES decryption instead
+    execIfSignatureCheckIsAvailable(function() {
+      // When this is executed message has been processed and DOM updated
+      var keyGeneration = document.getElementById("key-generation");
+      var encInput = document.getElementById("enc-input");
+      if (keyGeneration && encInput) {
+        // key-generation elements
+        var encPubKeyArea = document.createElement("textarea");
+        encPubKeyArea.id = "enc-pub-key";
+        encPubKeyArea.rows = "3";
+        encPubKeyArea.placeholder = "Public key of device (raw hex starting with 04).";
+        var encPrvKeyArea = document.createElement("textarea");
+        encPrvKeyArea.id = "enc-prv-key";
+        encPrvKeyArea.rows = "5";
+        encPrvKeyArea.placeholder = "Private key of KRP (PEM).";
+        var status = document.createElement("div");
+        status.id = "key-generation-status";
+        status.innerHTML = "<p> </p>";
+        var generateKeyButton = document.createElement("button");
+        generateKeyButton.innerText = "Generate key";
+
+        // enc-input elements
+        var encAesKeyArea = document.createElement("textarea");
+        encAesKeyArea.id = "enc-aes-key";
+        encAesKeyArea.rows = "1";
+        encAesKeyArea.placeholder = "Paste here AES key to decrypt the message (raw hex).";
+        var footer = document.createElement("div");
+        footer.innerHTML = "<div>&zwnj;</div>";
+        var decryptButton = document.createElement("button");
+        decryptButton.innerText = "Decrypt";
+
+        generateKeyButton.onclick = function() {
+          const pubKey = document.getElementById("enc-pub-key").value.trim();
+          const prvKey = document.getElementById("enc-prv-key").value.trim();
+          deriveKeyFromPair(prvKey, pubKey,
+            function (ok, aesKey) {
+              if (ok) {
+                encPubKeyArea.readOnly = true;
+                encPrvKeyArea.readOnly = true;
+                encAesKeyArea.value = arrayToHex(aesKey);
+                generateKeyButton.disabled = true;
+                status.innerHTML = '<p style="color: green">Key generation <b>SUCCESS</b></p>';
+                encAesKeyArea.readOnly = true;
+                // Decrypt!
+                decryptButton.click();
+              }
+              else {
+                status.innerHTML = '<p style="color: red">Key generation <b>FAILED</b></p>';
+              }
+            });
+        };
+
+        decryptButton.onclick = function() {
+          const key = document.getElementById("enc-aes-key").value.trim();
+          var aesKey = parseHexString(key).input;
+          decryptPayloadWithKey(ciphertextAndTag, aesKey,
+            function (yy) {
+              parseDlmsData(yy);
+              putUnparsedBytes(yy);
+            });
+          encAesKeyArea.readOnly = true;
+          decryptButton.disabled = true;
+          encPubKeyArea.readOnly = true;
+          encPrvKeyArea.readOnly = true;
+          generateKeyButton.disabled = true;
+        };
+
+        keyGeneration.appendChild(encPubKeyArea);
+        keyGeneration.appendChild(encPrvKeyArea);
+        keyGeneration.appendChild(generateKeyButton);
+        keyGeneration.appendChild(status);
+        encInput.appendChild(encAesKeyArea);
+        encInput.appendChild(decryptButton);
+        encInput.appendChild(footer);
+      }
+    });
+
   }
 
   function parseDlmsSequenceOf(x, name, parse) {
