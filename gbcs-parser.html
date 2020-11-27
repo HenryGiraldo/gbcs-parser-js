@@ -742,6 +742,10 @@ function parseGbcsMessage(text) {
         parseDlmsFutureDatedAlert(x);
       } else if (messageCode == 0x00CD) {  // Future Dated GBZ
         parseGbzFutureDatedAlertPayload(x);
+      } else if (messageCode == 0x00CE) {  // FW Distribution Receipt Alert ESME
+        parseDlmsFirmwareDistributionReceiptAlert(x);
+      } else if (messageCode == 0x00CF) {  // FW Distribution Receipt Alert GSME
+        parseGbzFirmwareDistributionReceiptAlert(x);
       } else if (messageCode == 0x00D5) {  // 8F84 Alert
         parseFailureToDeliverRemotePartyToEsme(x);
       } else if (x.input[x.index] == 1 && x.input[x.index + 1] == 9) {
@@ -1778,6 +1782,13 @@ function parseGbcsMessage(text) {
     parseDlmsCosemAttributeDescriptor(x);
   }
 
+  function parseDlmsFirmwareDistributionReceiptAlert(x) {
+    putBytes("DLMS Data Notification", getBytes(x, 8));
+    parseDlmsAlertCode(x);
+    parseDlmsOctetString(x, "Time Stamp", true);
+    parseDlmsOctetString(x, "Calculated Manufacturer Hash", true);
+  }
+
   function parseDlmsSequenceOf(x, name, parse) {
     var n = x.input[x.index];
     putBytes(name, getBytes(x, 1));
@@ -2560,6 +2571,14 @@ function parseGbcsMessage(text) {
     var frameControl = x.input[x.index];
     putBytes("Frame Control", getBytes(x, 1));
     parseCommandId(x, frameControl, cluster);
+  }
+
+  function parseGbzFirmwareDistributionReceiptAlert(x) {
+    putBytes("Profile ID", getBytes(x, 2));
+    putBytes("Number of GBZ components", getBytes(x, 1));
+    parseGbzAlertCode(x);
+    parseGbzTime(x, "Time Stamp");
+    parseDlmsOctetString(x, "Calculated Manufacturer Hash", true);
   }
 
   function parseGbzGcs53AlertPayload(x) {
