@@ -2885,14 +2885,14 @@ function parseGbcsMessage(text) {
       var status = parseZclStatusCode(x);
       if (status == 0) {
         var typeName = "Attribute Data Type";
-        var valueName = "Attribute Value";
+        var valueName = "Attribute Data Value";
         var type = x.input[x.index];
         if (type == 0x18) {
           putBytes(typeName, getBytes(x, 1), "BITMAP8");
           parseZclBitmap(8, x, valueName);
         } else if (type == 0x19) {
           putBytes(typeName, getBytes(x, 1), "BITMAP16");
-          parseZclBitmap(16, x, "Attribute Data Value");
+          parseZclBitmap(16, x, valueName);
         } else if (type == 0x20) {
           putBytes(typeName, getBytes(x, 1), "UINT8");
           parseZclUint(8, x, valueName);
@@ -2959,8 +2959,8 @@ function parseGbcsMessage(text) {
     parseZclOctetString(x, "Rate Label");
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUtcTime(x, "Current Time");
-    parseZclEnum(8, x, "Unit of Measure");
-    parseZclUint(16, x, "Currency");
+    parseZclEnum(8, x, "Unit of Measure", {0: "kWh"});
+    parseZclUint(16, x, "Currency", {826: "GBP", 978: "Euro"});
     parseZclBitmap(8, x, "Price Trailing Digit and Price Tier");
     parseZclBitmap(8, x, "Number of Price Tiers and Register Tier");
     parseZclUtcTime(x, "Start Time");
@@ -3005,12 +3005,13 @@ function parseGbcsMessage(text) {
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUint(32, x, "Issuer Tariff Id");
     parseZclUtcTime(x, "Start Time");
-    parseZclBitmap(8, x, "Tariff Type / Charging Scheme");
+    parseZclBitmap(8, x, "Tariff Type / Charging Scheme",
+      { 0x00: "TOU Tariff / Delivered Tariff", 0x10: "Block Tariff / Delivered Tariff" });
     parseZclOctetString(x, "Tariff Label");
     parseZclUint(8, x, "Number of Price Tiers in Use");
     parseZclUint(8, x, "Number of Block Thresholds in Use");
-    parseZclEnum(8, x, "Unit of Measure");
-    parseZclUint(16, x, "Currency");
+    parseZclEnum(8, x, "Unit of Measure", {0: "kWh"});
+    parseZclUint(16, x, "Currency", {826: "GBP", 978: "Euro"});
     parseZclBitmap(8, x, "Price Trailing Digit");
     parseZclUint(32, x, "Standing Charge");
     parseZclUint(8, x, "Tier Block Mode");
@@ -3025,7 +3026,7 @@ function parseGbcsMessage(text) {
     parseZclUint(32, x, "Issuer Tariff Id");
     parseZclUint(8, x, "Command Index");
     parseZclUint(8, x, "Number of Commands");
-    parseZclBitmap(8, x, "Subpayload Control");
+    parseZclBitmap(8, x, "Subpayload Control", { 0: "Block or Block/TOU", 1: "TOU" });
     for (var i = 1; x.index < x.end; i++) {
       parseZclUint(8, x, "Tier / Block Id " + i);
       parseZclUint(32, x, "Price " + i);
@@ -3039,7 +3040,7 @@ function parseGbcsMessage(text) {
     parseZclUint(32, x, "Issuer Tariff Id");
     parseZclUint(8, x, "Command Index");
     parseZclUint(8, x, "Number of Commands");
-    parseZclBitmap(8, x, "Subpayload Control");
+    parseZclBitmap(8, x, "Subpayload Control", { 1: "Block thresholds apply to all TOU tiers / block only charging in operation"});
     var n = parseZclUint(8, x, "Number of Block Thresholds");
     for (var i = 1; i <= n; i++) {
       parseZclUint(48, x, "Block Threshold " + i);
@@ -3100,7 +3101,7 @@ function parseGbcsMessage(text) {
     parseZclUint(32, x, "Provider Id");
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUint(16, x, "Uncontrolled Flow Threshold");
-    parseZclEnum(8, x, "Unit of Measure");
+    parseZclEnum(8, x, "Unit of Measure", {0: "kWh"});
     parseZclUint(16, x, "Multiplier");
     parseZclUint(16, x, "Divisor");
     parseZclUint(8, x, "Stabilisation Period");
@@ -3157,20 +3158,20 @@ function parseGbcsMessage(text) {
 
   function parseZseSelectAvailableEmergencyCredit(x) {
     parseZclUtcTime(x, "Command Issue Date Time");
-    parseZclEnum(8, x, "Originating Device");
+    parseZclEnum(8, x, "Originating Device", { 0: "Energy Service Interface"});
   }
 
   function parseZseChangeDebt(x) {
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclOctetString(x, "Debt Label");
     parseZclInt32(x, "Debt Amount");
-    parseZclUint(8, x, "Debt Recovery Method");
-    parseZclUint(8, x, "Debt Amount Type");
+    parseZclUint(8, x, "Debt Recovery Method", { 0: "Time-based debt", 1: "Payment-based debt" });
+    parseZclEnum(8, x, "Debt Amount Type", { 1: "Time-based debt (1) Incremental", 3: "Time-based debt (2) Incremental", 5: "Payment-based debt Incremental" });
     parseZclUint(32, x, "Debt Recovery Start Time");
     parseZclUint(16, x, "Debt Recovery Collection Time");
-    parseZclUint(8, x, "Debt Recovery Frequency");
+    parseZclEnum(8, x, "Debt Recovery Frequency", { 0: "Hourly", 1: "Daily" });
     parseZclInt32(x, "Debt Recovery Amount");
-    parseZclUint(16, x, "Debt Recovery Balance Percentage");
+    parseZclEnum(16, x, "Debt Recovery Balance Percentage");
   }
 
   function parseZseEmergencyCreditSetup(x) {
@@ -3196,7 +3197,14 @@ function parseGbcsMessage(text) {
     parseZclUint(32, x, "Provider Id");
     parseZclUtcTime(x, "Issuer Event Id");
     parseZclUtcTime(x, "Implementation Date Time");
-    parseZclUint(16, x, "Proposed Payment Control Configuration");
+    parseZclUint(16, x, "Proposed Payment Control Configuration",
+      {
+        0x0497: "Prepayment mode<br>Suspend Debt Emergency = True<br>Suspend Debt Disabled = True",
+        0x0097: "Prepayment mode<br>Suspend Debt Emergency = True<br>Suspend Debt Disabled = False",
+        0x0c97: "Prepayment mode<br>Suspend Debt Emergency = False<br>Suspend Debt Disabled = True",
+        0x0897: "Prepayment mode<br>Suspend Debt Emergency = False<br>Suspend Debt Disabled = False",
+        0x0c94: "Credit mode"
+      });
     parseZclInt32(x, "Cut Off Value");
   }
 
@@ -3204,7 +3212,7 @@ function parseGbcsMessage(text) {
     parseZclUtcTime(x, "Earliest Start Time");
     parseZclUtcTime(x, "Latest End Time");
     parseZclUint(8, x, "Snapshot Offset");
-    parseZclBitmap(32, x, "Snapshot Cause");
+    parseZclBitmap(32, x, "Snapshot Cause", { 1: "General" });
   }
 
   function parseZseGetTopUpLog(x) {
@@ -3477,11 +3485,11 @@ function parseGbcsMessage(text) {
 
   // ZCL Types
 
-  function parseZclUint(bits, x, name) {
+  function parseZclUint(bits, x, name, values) {
     var value = 0;
     var bytes = bits / 8;
     value = parseNumberLE(x, bytes);
-    putBytes(name, getBytes(x, bytes), tooltip(value, toHex(value, bits)));
+    putBytes(name, getBytes(x, bytes), tooltip(values && (values[value] || "Unknown") || value, toHex(value, bits)));
     return value;
   }
 
@@ -3532,8 +3540,24 @@ function parseGbcsMessage(text) {
     putBytes(name, getBytes(x, 1 + length), printableValue);
   }
 
-  function parseZclBitmap(bits, x, name) {
-    putBytes(name, getBytes(x, bits / 8));
+  function parseZclBitmap(bits, x, name, values) {
+    var number = parseNumberLE(x, bits / 8);
+    var value = toHex(number, bits);
+    if (bits <= 16) {
+      function prettybit(index, bit) {
+        return tooltip(bit, "Bit #" + index);
+      }
+      value += " = 0b";
+      // Be careful, it's Little Endian
+      for (var i = 0; i < bits / 8; i++) {
+        // full byte
+        var b = x.input[x.index + bits / 8 - 1 - i];
+        for (var j = 0; j < 8; j++) {
+          value += prettybit(i * 8 + j, (b >> (7 - j)) & 1);
+        }
+      }
+    }
+    putBytes(name, getBytes(x, bits / 8), values && (values[number] || "Unknown") || value);
   }
 
   function getLogIdType(/*int*/ logIdType) {
@@ -3556,8 +3580,8 @@ function parseGbcsMessage(text) {
     putBytes(name, getBytes(x, bits / 8), getLogIdType(logIdType));
   }
 
-  function parseZclEnum(bits, x, name) {
-    parseZclUint(bits, x, name);
+  function parseZclEnum(bits, x, name, values) {
+    parseZclUint(bits, x, name, values);
   }
 
   function parseZclDate(x, name) {
