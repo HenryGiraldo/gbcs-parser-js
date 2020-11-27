@@ -3138,7 +3138,7 @@ function parseGbcsMessage(text) {
           12: [ "Set Overall Debt Cap", parseZseSetOverallDebtCap ],
         },
         responses: {
-          1: [ "Publish Prepay Snapshot" ],  // encrypted payload
+          1: [ "Publish Prepay Snapshot", parseZsePublishPrepaySnapshot ],  // encrypted payload
           2: [ "Change Payment Mode Response", parseZseChangePaymentModeResponse ],
           3: [ "Consumer Top Up Response", parseZseConsumerTopUpResponse ],
           5: [ "Publish Top Up Log", parseZsePublishTopUpLog ],
@@ -3464,6 +3464,17 @@ function parseGbcsMessage(text) {
     parseZclUint(16, x, "Divisor");
     parseZclUint(8, x, "Stabilisation Period");
     parseZclUint(16, x, "Measurement Period");
+  }
+
+  function parseZsePublishPrepaySnapshot(x) {
+    parseZclUint(32, x, "Snapshot Id");
+    parseZclUtcTime(x, "Snapshot Time");
+    parseZclUint(8, x, "Snapshots Found");
+    parseZclUint(8, x, "Command Index");
+    parseZclUint(8, x, "Number of Commands");
+    parseZclBitmap(32, x, "Snapshot Cause");
+    parseZclEnum(8, x, "Snapshot Payload Type");
+    putBytes("Snapshot Subpayload", x);
   }
 
   function parseZsePublishSnapshot(x) {
