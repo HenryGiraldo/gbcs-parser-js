@@ -67,13 +67,16 @@ function parse() {
     var table = document.getElementById("table");
     table.innerHTML = parseGbcsMessage(textarea.value);
     hash = '#' + textarea.value.replace(/\s/g, '');
-    if (hash.length < 2000) {
+    if (window.navigator.userAgent.match(/MSIE|Trident|Edge/) && hash.length < 2000) {
+      // fails with longer than 2025 to 2050 chars in IE/Edge, do nothing
+    }
+    else {
       try {
         window.location.hash = hash;
       } catch (e) {
         window.location.hash = hash = '#';
       }
-    } // fails with longer than 2025 to 2050 chars in IE/Edge
+    }
 }
 
 function str2u8array(str) {
