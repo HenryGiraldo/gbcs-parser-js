@@ -426,7 +426,7 @@ function parseGbcsMessage(text) {
       // Try parsing the certificate even if it does not have header/footer
       const binaryDerString = window.atob(pemContents);
       const binaryDer = str2u8array(binaryDerString);
-      const certificate = parsePemCertificate(binaryDer);
+      const certificate = asn1Utils().parsePemCertificate(binaryDer);
 
       const alg = certificate.tbsCertificate.signature.algorithm;
       const publicKeyType = certificate.tbsCertificate.subjectPublicKeyInfo.algorithm.algorithm;
@@ -488,6 +488,11 @@ function parseGbcsMessage(text) {
     }
   }
 
+  function asn1Utils() {
+    return {
+      parsePemCertificate:  parsePemCertificate,
+      parsePemPrivateKey:   parsePemPrivateKey
+    }
 
   // From https://blog.engelke.com/2014/10/21/web-crypto-and-x-509-certificates/
   function parsePemCertificate(byteArray) {
@@ -507,6 +512,26 @@ function parseGbcsMessage(text) {
     cert.signatureValue     = parseSignatureValue(pieces[2]);
 
     return cert;
+    }
+
+    function parsePemPrivateKey(byteArray) {
+      var asn1 = berToJavaScript(byteArray);
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("This can't be a private key. Wrong data type.");
+      }
+
+      var key = {asn1: asn1}; // Include the raw parser result for debugging
+      var pieces = berListToJavaScript(asn1.contents);
+      if (pieces.length !== 3){
+        throw new Error("Private key contains more than the three specified children.");
+      }
+
+      key.version             = pieces[0];
+      key.privateKeyAlgorithm = parseAlgorithmIdentifier(pieces[1]);
+      key.privateKey          = parsePrivateKey(pieces[2]);
+
+      return key;
+    }
 
     function berListToJavaScript(byteArray) {
       var result = new Array();
@@ -609,6 +634,23 @@ function parseGbcsMessage(text) {
       spki.algorithm = parseAlgorithmIdentifier(pieces[0]);
       spki.bits = berBitStringValue(pieces[1].contents);
       return spki;
+    }
+
+    function parsePrivateKey(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 4 || asn1.structured) {
+        throw new Error("This can't be a PrivateKey. Wrong data type.");
+      }
+      var ecPrivateKey = {asn1: berToJavaScript(asn1.contents)};
+      var pieces = berListToJavaScript(ecPrivateKey.asn1.contents);
+      if (pieces.length < 3) {
+        throw new Error("Bad ECPrivateKey. There are fewer than the required children.");
+      }
+      ecPrivateKey.version = pieces[0];
+      ecPrivateKey.privateKey = pieces[1];
+      if (pieces[2].cls === 2 && pieces[2].tag === 1 && pieces[2].structured) {
+        ecPrivateKey.publicKey = berToJavaScript(pieces[2].contents);
+      }
+      return ecPrivateKey;
     }
 
     // From https://blog.engelke.com/2014/10/17/parsing-ber-and-der-encoded-asn-1-objects/
@@ -1890,7 +1932,6 @@ function parseGbcsMessage(text) {
 
   function deriveKeyFromPair(prvKey, pubKey, doneCb) {
 
-    // Not in Firefox yet https://bugzilla.mozilla.org/show_bug.cgi?id=1048931
     function getPrivKey(pem) {
       // fetch the part of the PEM string between header and footer
       const pemHeader = "-----BEGIN PRIVATE KEY-----";
@@ -1901,9 +1942,39 @@ function parseGbcsMessage(text) {
       // convert from a binary string to an ArrayBuffer
       const binaryDer = str2u8array(binaryDerString);
 
+      // SubtleCrypto PKCS8 private key import is not available in Firefox yet https://bugzilla.mozilla.org/show_bug.cgi?id=1048931
+      // Need to extract private and public key bytes from PEM and convert to JWK.
+
+      const key = asn1Utils().parsePemPrivateKey(binaryDer);
+      const keyType = key.privateKeyAlgorithm.algorithm;
+      const namedCurve = key.privateKeyAlgorithm.parameters.curve;
+      if (keyType !== "1.2.840.10045.2.1" &&      // ecPublicKey
+        namedCurve !== "1.2.840.10045.3.1.7") {   // prime256v1
+        throw new Error("Key type " + keyType + " and curve " + namedCurve + " is not supported.");
+      }
+
+      function toBase64Url(arr) {
+        var binStr = Array.prototype.map.call(arr, function(ch) {
+          return String.fromCharCode(ch);
+        }).join('');
+        return btoa(binStr).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      }
+
+      var d = toBase64Url(key.privateKey.privateKey.contents);
+      var x = toBase64Url(key.privateKey.publicKey.contents.slice(2, 2 + 32));
+      var y = toBase64Url(key.privateKey.publicKey.contents.slice(34, 34 + 32));
+
+      var jwk = {
+        "kty": "EC",
+        "crv": "P-256",
+        "d": d,
+        "x": x,
+        "y": y
+      }
+
       return window.crypto.subtle.importKey(
-        "pkcs8",
-        binaryDer,
+        "jwk",
+        jwk,
         {
           name: "ECDH",
           namedCurve: "P-256"
