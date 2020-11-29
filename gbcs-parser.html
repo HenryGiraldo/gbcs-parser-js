@@ -2011,13 +2011,17 @@ function parseGbcsMessage(text) {
     var y = getBytes(x, len);
     putBytes(" Security Header", getBytes(y, 5));
     var ciphertextAndTag = y.input.subarray(y.index, y.index + len - 5);
-    putBytes(" Encrypted DLMS Payload", getBytes(y, len - 5 - 12));
+    putBytes(" Encrypted DLMS Payload", getBytes(y, len - 5 - 12), getDecryptLink());
     putBytes(" AE MAC", getBytes(y, 12));
 
     decryptGbcsData(ciphertextAndTag, function(yy) {
       parseDlmsData(yy);
       putUnparsedBytes(yy);
     });
+  }
+
+  function getDecryptLink() {
+    return '<a href="javascript:void(0);" class="go-to-decryption-inputs">Decrypt ↓</a>';
   }
 
   function decryptGbcsData(ciphertextAndTag, okCallback) {
@@ -2032,10 +2036,19 @@ function parseGbcsMessage(text) {
   function handleDecryptGbcsData() {
     putSeparator("&zwnj;", "empty");
     sensitive = true;
-    putSeparator("Decryption inputs");
+    putSeparator('<div id="decryption-inputs">Decryption inputs</div>');
     putBytes("AES key generation", getBytes(x, 0), '<div id="key-generation">Not supported</div>');
     putBytes("AES key", getBytes(x, 0), '<div id="enc-input">Not supported</div>');
     sensitive = false;
+
+    // Need to use setTimeout so DOM is loaded with the div's from above.
+    setTimeout(function() {
+      Array.prototype.forEach.call(document.getElementsByClassName("go-to-decryption-inputs"), function (e) {
+        e.onclick = function () {
+          document.getElementById("decryption-inputs").scrollIntoView({ behavior: "smooth" });
+        }
+      });
+    }, 0);
 
     // TODO: check key agreement and AES decryption instead
     execIfSignatureCheckIsAvailable(function() {
@@ -2091,8 +2104,6 @@ function parseGbcsMessage(text) {
 
         decryptButton.onclick = function() {
           var firstAnchor = document.getElementById("decrypted-payload");
-          var rect = firstAnchor.getBoundingClientRect();
-          var top = rect.top + window.pageYOffset;
 
           const key = document.getElementById("enc-aes-key").value.trim();
           var aesKey = parseHexString(key).input;
@@ -2103,7 +2114,7 @@ function parseGbcsMessage(text) {
           encPrvKeyArea.readOnly = true;
           generateKeyButton.disabled = true;
 
-          window.scrollTo({ top: top, left: 0, behavior: 'smooth' });
+          firstAnchor.scrollIntoView({ behavior: "smooth" });
         };
 
         keyGeneration.innerHTML = "";
@@ -2974,7 +2985,7 @@ function parseGbcsMessage(text) {
         putBytes("Ciphered Information Length", getBytes(y, 2), len);
         putBytes("Security Header", getBytes(y, 5));
         var ciphertextAndTag = y.input.subarray(y.index, y.index + len - 5);
-        putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12));
+        putBytes("Encrypted ZCL Payload", getBytes(y, len - 5 - 12), getDecryptLink());
         putBytes("AE MAC", getBytes(y, 12));
 
         decryptGbcsData(ciphertextAndTag, function(yy) {
