@@ -3559,7 +3559,14 @@ function parseGbcsMessage(text) {
     parseZclUint(8, x, "Number of Commands");
     parseZclBitmap(32, x, "Snapshot Cause");
     parseZclEnum(8, x, "Snapshot Payload Type");
-    putBytes("Snapshot Subpayload", x);
+    putBytes("Snapshot Subpayload", getBytes(x, 0));
+    // ZSE Accumulated Debt = SMETS Accumulated Debt Register; ZSE Type 1 Debt Remaining = SMETS Time Debt Registers [1]; ZSE Type 2 Debt Remaining = SMETS Time Debt Registers [2]; ZSE Type 3 Debt Remaining = SMETS Payment Debt Register; ZSE Emergency Credit Remaining = SMETS Emergency Credit Balance; ZSE Credit Remaining = SMETS Meter Balance
+    parseZclInt32(x, " Accumulated Debt Register");
+    parseZclUint(32, x, " Time Debt Registers [1]");
+    parseZclUint(32, x, " Time Debt Registers [2]");
+    parseZclUint(32, x, " Payment Debt Register");
+    parseZclUint(32, x, " Emergency Credit Balance");
+    parseZclUint(32, x, " Meter Balance");
   }
 
   function parseZsePublishSnapshot(x) {
@@ -3569,8 +3576,17 @@ function parseGbcsMessage(text) {
     parseZclUint(8, x, "Command Index");
     parseZclUint(8, x, "Number of Commands");
     parseZclBitmap(32, x, "Snapshot Cause");
-    parseZclEnum(8, x, "Snapshot Payload Type");
-    putBytes("Snapshot Subpayload", x);
+    parseZclEnum(8, x, "Snapshot Payload Type");  // 6
+    putBytes("Snapshot Subpayload", getBytes(0));
+    parseZclUint(48, x, " Current Summation Delivered");
+    parseZclUint(8, x, " Number of Tiers in Use");
+    for (var i = 0; i < 4; i++) {
+      parseZclUint(48, x, " Tariff TOU Register Matrix [" + (i + 1) + "]");
+    }
+    parseZclBitmap(8, x, " Number of Tiers and Block Thresholds in Use");
+    for (var i = 0; i < 4; i++) {
+      parseZclUint(48, x, " Tariff TOU Block Counter Matrix [" + (i + 1) + "]");
+    }
   }
 
   function parseZseGetSampledDataResponse(x) {
