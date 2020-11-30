@@ -2577,15 +2577,9 @@ function parseGbcsMessage(text) {
   }
 
   function parseDlmsCompactArrayContents(indent, x, typeDescription) {
-    var arrayContentsLen = x.input[x.index];
-    var bytes = 1;
-    if (arrayContentsLen == 0x81) {
-      arrayContentsLen = parseNumber(x, 1, 1);
-      bytes = 2;
-    } else if (arrayContentsLen == 0x82) {
-      arrayContentsLen = parseNumber(x, 2, 1);
-      bytes = 3;
-    }
+    var lenSz = parseLength(x);
+    var arrayContentsLen = lenSz.length;
+    var bytes = lenSz.size;
     putBytes(indent + "Contents", getBytes(x, bytes));
     var contents = getBytes(x, arrayContentsLen);
     var index = 0;
