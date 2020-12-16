@@ -815,6 +815,10 @@ function parseGbcsMessage(text) {
         parseDlmsBillingDataLogAlert(x);
       } else if (messageCode == 0x00D5) {  // 8F84 Alert
         parseFailureToDeliverRemotePartyToEsme(x);
+      } else if (messageCode == 0x00F0) {  // 81A0 Alert ESME
+        parseDlmsMeterIntegrityIssueWarningAlert(x);
+      } else if (messageCode == 0x00F2) {  // 81A0 Alert GSME
+        parseGbzMeterIntegrityIssueWarningAlert(x);
       } else if (x.input[x.index] == 1 && x.input[x.index + 1] == 9) {
         if (craFlag == 3) {
           parseGbzAlertPayload(x);
@@ -1878,6 +1882,14 @@ function parseGbcsMessage(text) {
     parseDlmsAlertCode(x);
     parseDlmsOctetString(x, "Time Stamp", true);
     parseDlmsProtectedData(x);
+  }
+
+  function parseDlmsMeterIntegrityIssueWarningAlert(x) {
+    putBytes("DLMS Data Notification", getBytes(x, 8));
+    parseDlmsAlertCode(x);
+    parseDlmsOctetString(x, "Time Stamp", true);
+    putBytes("DLMS Use Case Specific Content", getBytes(x, 2));
+    parseMeterIntegrityIssueWarning(x);
   }
 
   function decryptPayloadWithKey(ciphertextTag, /* Uint8Array(16) */ aesKey, doneCb) {
@@ -2964,6 +2976,32 @@ function parseGbcsMessage(text) {
     if (x.index < x.end) {
       putBytes("GBZ Use Case Specific Components", x);
     }
+  }
+
+  function parseMeterIntegrityIssueWarning(x) {
+    var otherInfo = parseNumber(x, 2);
+    var names = {
+      0x0000: "Other",
+      0x0001: "Error Non Volatile Memory",
+      0x0002: "Error Program Execution",
+      0x0003: "Error Program Storage",
+      0x0004: "Error RAM",
+      0x0005: "Error Unexpected Hardware Reset",
+      0x0006: "Error Watchdog",
+      0x0007: "Error Metrology Firmware Verification Failure",
+      0x0008: "Error Measurement Fault",
+      0x0009: "Unespecified Smart Meter Operational Integrity Error"
+    }
+    putBytes("Other Info", getBytes(x, 2), names[otherInfo]);
+  }
+
+  function parseGbzMeterIntegrityIssueWarningAlert(x) {
+    putBytes("Profile ID", getBytes(x, 2));
+    putBytes("Number of GBZ components", getBytes(x, 1));
+    parseGbzAlertCode(x);
+    parseGbzTime(x, "Time Stamp");
+    putBytes("GBZ Use Case Specific Components", getBytes(x, 0));
+    parseMeterIntegrityIssueWarning(x);
   }
 
   function parseGbzFutureDatedAlertPayload(x) {
