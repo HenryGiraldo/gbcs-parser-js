@@ -198,6 +198,7 @@ function parseGbcsMessage(text) {
         }
       }
     }
+    bytes = bytes.subarray(0, length);
     return { input: bytes, index: 0, end: length };
   }
 
@@ -2158,7 +2159,7 @@ function parseGbcsMessage(text) {
         var encAesKeyArea = document.createElement("textarea");
         encAesKeyArea.id = "enc-aes-key";
         encAesKeyArea.rows = "1";
-        encAesKeyArea.placeholder = "Paste here AES key to decrypt the message (raw hex).";
+        encAesKeyArea.placeholder = "Paste here the AES key to decrypt the message (raw hex).";
         var footer = document.createElement("div");
         footer.innerHTML = "<div>&zwnj;</div>";
         var decryptButton = document.createElement("button");
