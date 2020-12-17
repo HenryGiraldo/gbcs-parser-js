@@ -125,7 +125,7 @@ function parseGbcsMessage(text) {
       var gbt = [];
       do {
         var block = parseGeneralBlockTransfer(x);
-        if (block.number > 255 || block.lengt > 1200) {
+        if (block.number > 255 || block.len > 1200) {
           // something is wrong, fail
           putUnparsedBytes(x);
           break;
