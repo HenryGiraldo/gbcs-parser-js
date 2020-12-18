@@ -1356,12 +1356,12 @@ function parseGbcsMessage(text) {
 
   function parseReplacementOutcome(x) {
     var s = parseSequence(x, "Replacement Outcome");
-    parseTrustAnchorCellIdentifier(s, "Affected Trust Anchor Cell");
+    parseTrustAnchorCellIdentifier(s, " Affected Trust Anchor Cell");
     parseStatusCode(s);
-    parseDerOctetString(s, "Existing Subject Unique ID");
-    parseDerOctetString(s, "Existing Subject Key ID");
-    parseDerOctetString(s, "Replacing Subject Unique ID");
-    parseDerOctetString(s, "Replacing Subject Key ID");
+    parseDerOctetString(s, " Existing Subject Unique ID");
+    parseDerOctetString(s, " Existing Subject Key ID");
+    parseDerOctetString(s, " Replacing Subject Unique ID");
+    parseDerOctetString(s, " Replacing Subject Key ID");
   }
 
   // CS02c Issue Security Credentials
@@ -1418,8 +1418,8 @@ function parseGbcsMessage(text) {
 
   function parseJoinDeviceCommand(x) {
     var s = parseSequence(x, "Join Device Command");
-    parseInteger(s, "Join Method and Role", { 0:"Method A Initiator", 1:"Method A Responder", 2:"Method B", 3:"Method C" });
-    parseDerOctetString(s, "Entity Id");
+    parseInteger(s, " Join Method and Role", { 0:"Method A Initiator", 1:"Method A Responder", 2:"Method B", 3:"Method C" });
+    parseDerOctetString(s, " Entity Id");
     parseDeviceType(s);
     if (s.index < s.end) {
       parseCertificate(s);
@@ -1587,7 +1587,7 @@ function parseGbcsMessage(text) {
   // GBCS ASN.1 definitions used by multiple use cases
 
   function parseDeviceType(x) {
-    parseInteger(x, "Device Type", { 0:"GSME", 1:"ESME", 2:"CHF", 3:"GPF", 4:"HCALCS", 5:"PPMID", 6:"Type 2" });
+    parseInteger(x, " Device Type", { 0:"GSME", 1:"ESME", 2:"CHF", 3:"GPF", 4:"HCALCS", 5:"PPMID", 6:"Type 2" });
   }
 
   function parseTrustAnchorCellIdentifier(x, name) {
@@ -1609,7 +1609,7 @@ function parseGbcsMessage(text) {
       7: "Issuing Authority",
       127: "Other"
     };
-    parseInteger(x, "Remote Party Role", values);
+    parseInteger(x, "  Remote Party Role", values);
   }
 
   function parseKeyUsage(x) {
@@ -1631,15 +1631,15 @@ function parseGbcsMessage(text) {
         }
       }
     }
-    putBytes("Key Usage", getBytes(x, 2 + length), notes);
+    putBytes("  Key Usage", getBytes(x, 2 + length), notes);
   }
 
   // CellUsage ::= INTEGER { management (0), prePaymentTopUp (1) } DEFAULT management
   function parseCellUsage(x) {
     if (x.index + 2 < x.end && x.input[x.index] == 2 && x.input[x.index + 1] == 1 && x.input[x.index + 2] == 1) {
-      putBytes("Cell Usage", getBytes(x, 3), "Prepayment Top Up");
+      putBytes("  Cell Usage", getBytes(x, 3), "Prepayment Top Up");
     } else {
-      putBytes("Cell Usage", { index: 0, end: 0 }, "Management (DEFAULT)");
+      putBytes("  Cell Usage", { index: 0, end: 0 }, "Management (DEFAULT)");
     }
   }
 
@@ -1661,38 +1661,38 @@ function parseGbcsMessage(text) {
       8: "Any Except Abnormal Root by Recovery",
       9: "Any by Contingency"
     };
-    parseInteger(x, "Credentials Replacement Mode", values);
+    parseInteger(x, " Credentials Replacement Mode", values);
   }
 
   function parseAuthorisingRemotePartyControl(x) {
     var s = parseSequence(x, "Authorising Remote Party Control");
     parseCredentialsReplacementMode(s);
-    if (isPresent(s, 0x80)) parseDerOctetString(s, "Plaintext Symmetric Key");
-    if (isPresent(s, 0x81)) parseInteger(s, "Apply Time Based CPV Checks", { 0: "Apply", 1: "Disapply" });
-    if (isPresent(s, 0xA2)) parseTrustAnchorCellIdentifier(s, "Authorising Remote Party TA Cell Identifier");
-    parseSeqNumber(s, "Authorising Remote Party Seq Number");
-    if (isPresent(s, 0x84)) parseSeqNumber(s, "New Remote Party Floor Seq Number");
-    if (isPresent(s, 0xA5)) parseSequenceOf(s, "New Remote Party Specialist Floor Seq Number", parseSpecialistSeqNumber);
-    if (isPresent(s, 0xA6)) parseSequenceOf(s, "Other Remote Party Seq Number Changes", parseRemotePartySeqNumberChange);
+    if (isPresent(s, 0x80)) parseDerOctetString(s, " Plaintext Symmetric Key");
+    if (isPresent(s, 0x81)) parseInteger(s, " Apply Time Based CPV Checks", { 0: "Apply", 1: "Disapply" });
+    if (isPresent(s, 0xA2)) parseTrustAnchorCellIdentifier(s, " Authorising Remote Party TA Cell Identifier");
+    parseSeqNumber(s, " Authorising Remote Party Seq Number");
+    if (isPresent(s, 0x84)) parseSeqNumber(s, " New Remote Party Floor Seq Number");
+    if (isPresent(s, 0xA5)) parseSequenceOf(s, " New Remote Party Specialist Floor Seq Number", parseSpecialistSeqNumber);
+    if (isPresent(s, 0xA6)) parseSequenceOf(s, " Other Remote Party Seq Number Changes", parseRemotePartySeqNumberChange);
   }
 
   function parseSpecialistSeqNumber(x) {
-    var s = parseSequence(x, "Specialist Seq Number");
-    parseInteger(s, "Seq Number Usage", { 0: "Prepayment Top Up" });
-    parseSeqNumber(s, "Seq Number");
+    var s = parseSequence(x, "  Specialist Seq Number");
+    parseInteger(s, "   Seq Number Usage", { 0: "Prepayment Top Up" });
+    parseSeqNumber(s, "   Seq Number");
   }
 
   function parseRemotePartySeqNumberChange(x) {
-    var s = parseSequence(x, "Remote Party Seq Number Change");
+    var s = parseSequence(x, " Remote Party Seq Number Change");
     parseRemotePartyRole(s);
-    parseSeqNumber(s, "Floor Seq Number");
-    if (isPresent(s, 0x30)) parseSequenceOf(s, "Specialist Floor Seq Number", parseSpecialistSeqNumber);
+    parseSeqNumber(s, "  Floor Seq Number");
+    if (isPresent(s, 0x30)) parseSequenceOf(s, "  Specialist Floor Seq Number", parseSpecialistSeqNumber);
   }
 
   function parseTrustAnchorReplacement(x) {
     var s = parseSequence(x, "Trust Anchor Replacement");
     parseCertificate(s);
-    parseTrustAnchorCellIdentifier(s, "Target Trust Anchor Cell");
+    parseTrustAnchorCellIdentifier(s, " Target Trust Anchor Cell");
   }
 
   // StatusCode ::= ENUMERATED { success (0), ... }
@@ -1828,16 +1828,16 @@ function parseGbcsMessage(text) {
   function parseDlmsAccessRequestSpecification(x, idx) {
     var choice = x.input[x.index];
     if (choice == 1) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get " + idx);
+      putBytes(" Access Request Specification", getBytes(x, 1), "Access Request Get " + idx);
       parseDlmsCosemAttributeDescriptor(x);
     } else if (choice == 2) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Set " + idx);
+      putBytes(" Access Request Specification", getBytes(x, 1), "Access Request Set " + idx);
       parseDlmsCosemAttributeDescriptor(x);
     } else if (choice == 3) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Action " + idx);
+      putBytes(" Access Request Specification", getBytes(x, 1), "Access Request Action " + idx);
       parseDlmsCosemMethodDescriptor(x);
     } else if (choice == 4) {
-      putBytes("Access Request Specification", getBytes(x, 1), "Access Request Get with Selection " + idx);
+      putBytes(" Access Request Specification", getBytes(x, 1), "Access Request Get with Selection " + idx);
       parseDlmsCosemAttributeDescriptor(x);
       parseDlmsSelectiveAccessDescriptor(x);
     } else {
@@ -2878,7 +2878,7 @@ function parseGbcsMessage(text) {
     };
     var id = parseNumber(x, 2);
     var cosemClass = classes[id] || { name:"IC " + id, attributes:[], methods:[], instances:{} };
-    putBytes("┌ Class Id", getBytes(x, 2), "┌ " + cosemClass.name);
+    putBytes(" ┌ Class Id", getBytes(x, 2), "┌ " + cosemClass.name);
     return cosemClass;
   }
 
@@ -2894,19 +2894,19 @@ function parseGbcsMessage(text) {
     var name = formatObis(x)
     if (cosemInstance != undefined)
       name = name + " - " + cosemInstance;
-    putBytes("├ Instance Id", getBytes(x, 6), "├ " + name);
+    putBytes(" ├ Instance Id", getBytes(x, 6), "├ " + name);
   }
 
   function parseDlmsCosemAttributeId(x, cosemClass) {
     var id = x.input[x.index];
     var name = cosemClass.attributes[id - 2] || "Attribute " + id;
-    putBytes("└ Attribute Id", getBytes(x, 1), "└ " + name);
+    putBytes(" └ Attribute Id", getBytes(x, 1), "└ " + name);
   }
 
   function parseDlmsCosemMethodId(x, cosemClass) {
     var id = x.input[x.index];
     var name = cosemClass.methods[id - 1] || "Method " + id;
-    putBytes("└ Method Id", getBytes(x, 1), "└ " + name);
+    putBytes(" └ Method Id", getBytes(x, 1), "└ " + name);
   }
 
   function parseDlmsSelectiveAccessDescriptor(x) {
