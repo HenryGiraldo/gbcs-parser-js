@@ -491,31 +491,31 @@ function parseGbcsMessage(text) {
 
   function asn1Utils() {
     return {
-      parsePemCertificate:  parsePemCertificate,
-      parsePemPrivateKey:   parsePemPrivateKey
+      parsePemCertificate:  parsePemCertificate_impl,
+      parsePemPrivateKey:   parsePemPrivateKey_impl
     }
 
-  // From https://blog.engelke.com/2014/10/21/web-crypto-and-x-509-certificates/
-  function parsePemCertificate(byteArray) {
-    var asn1 = berToJavaScript(byteArray);
-    if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
-      throw new Error("This can't be an X.509 certificate. Wrong data type.");
+   // From https://blog.engelke.com/2014/10/21/web-crypto-and-x-509-certificates/
+    function parsePemCertificate_impl(byteArray) {
+      var asn1 = berToJavaScript(byteArray);
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("This can't be an X.509 certificate. Wrong data type.");
+      }
+
+      var cert = {asn1: asn1};  // Include the raw parser result for debugging
+      var pieces = berListToJavaScript(asn1.contents);
+      if (pieces.length !== 3) {
+        throw new Error("Certificate contains more than the three specified children.");
+      }
+
+      cert.tbsCertificate     = parseTBSCertificate(pieces[0]);
+      cert.signatureAlgorithm = parseAlgorithmIdentifier(pieces[1]);
+      cert.signatureValue     = parseSignatureValue(pieces[2]);
+
+      return cert;
     }
 
-    var cert = {asn1: asn1};  // Include the raw parser result for debugging
-    var pieces = berListToJavaScript(asn1.contents);
-    if (pieces.length !== 3) {
-      throw new Error("Certificate contains more than the three specified children.");
-    }
-
-    cert.tbsCertificate     = parseTBSCertificate(pieces[0]);
-    cert.signatureAlgorithm = parseAlgorithmIdentifier(pieces[1]);
-    cert.signatureValue     = parseSignatureValue(pieces[2]);
-
-    return cert;
-    }
-
-    function parsePemPrivateKey(byteArray) {
+    function parsePemPrivateKey_impl(byteArray) {
       var asn1 = berToJavaScript(byteArray);
       if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
         throw new Error("This can't be a private key. Wrong data type.");
@@ -614,13 +614,195 @@ function parseGbcsMessage(text) {
         throw new Error("Bad TBS Certificate. There are fewer than the seven required children.");
       }
       tbs.version = pieces[0];
-      tbs.serialNumber = pieces[1];
+      tbs.serialNumber = parseSerialNumber(pieces[1]);
       tbs.signature = parseAlgorithmIdentifier(pieces[2]);
-      tbs.issuer = pieces[3];
-      tbs.validity = pieces[4];
-      tbs.subject = pieces[5];
+      tbs.issuer = parseName(pieces[3]);
+      tbs.validity = parseValidity(pieces[4]);
+      tbs.subject = parseName(pieces[5]);
       tbs.subjectPublicKeyInfo = parseSubjectPublicKeyInfo(pieces[6]);
+      for (var i = 7; i < pieces.length; i++) {
+        if (pieces[i].cls == 2) {
+          if (pieces[i].tag == 3) {
+            tbs.extensions = parseExtensions(pieces[i]);
+          }
+        }
+      }
       return tbs;  // Ignore optional fields for now
+    }
+
+    function arrayToHexColon(arr) {
+      var ret = "";
+      for (var i = 0; i < arr.length; i++) {
+          var str = arr[i].toString(16);
+          z = 2 - str.length + 1;
+          str = Array(z).join("0") + str;
+          ret += str;
+          if (i < arr.length - 1) ret += ":";
+      }
+      return ret;
+    }
+
+    function parseExtensions(asn1) {
+      var extensions = {asn1: asn1, items: []};
+      var seq = berToJavaScript(asn1.contents);
+      var pieces = berListToJavaScript(seq.contents);
+      for (var i = 0; i < pieces.length; i++) {
+        var ext = parseExtension(pieces[i]);
+        extensions.items.push(ext);
+      }
+      return extensions;
+
+      function parseExtension(asn1) {
+        var ext = {asn1: asn1};
+        var pieces = berListToJavaScript(asn1.contents);
+        ext.extnId = berObjectIdentifierValue(pieces[0].contents);
+        ext.critical = (pieces[1].tag == 1) && (pieces[1].contents[0] != 0);
+        ext.extnValue = (pieces[1].tag == 1) && pieces[2] || pieces[1];
+        ext.extnValueInner = berToJavaScript(ext.extnValue.contents);
+
+        if (ext.extnId === "2.5.29.15") {
+          ext.name = "keyUsage";
+          ext.valueStr = parseKeyUsage(ext.extnValueInner.contents);
+        } else if (ext.extnId === "2.5.29.14") {
+          ext.name = "subjectKeyIdentifier";
+          ext.valueStr = arrayToHexColon(ext.extnValueInner.contents).toUpperCase();
+        } else if (ext.extnId === "2.5.29.35") {
+          ext.name = "authorityKeyIdentifier";
+          ext.valueStr = arrayToHexColon(ext.extnValueInner.contents.subarray(2)).toUpperCase();
+        } else {
+          // ext.name = ext.extnId;
+          ext.valueStr = arrayToHex(ext.extnValueInner.contents).toUpperCase();
+        }
+
+        return ext;
+
+        function parseKeyUsage(byteArray) {
+          var bits = {
+            0: "digitalSignature",
+            1: "nonRepudiation",
+            2: "keyEncipherment",
+            3: "dataEncipherment",
+            4: "keyAgreement",
+            5: "keyCertSign",
+            6: "cRLSign",
+            7: "encipherOnly",
+            8: "decipherOnly"
+          }
+          var length = byteArray[0];
+          var bitstring = byteArray[1];
+          var keyUsage = "";
+          for (var i = 0; i < 8; i++) {
+            if (bitstring & (0x80 >> i)) {
+              if (bits[i]) {
+                if (keyUsage)
+                  keyUsage += " ";
+                keyUsage += bits[i];
+              }
+            }
+          }
+          return keyUsage;
+        }
+      }
+    }
+
+    function parseSerialNumber(asn1) {
+      var serial = asn1;
+      serial.str = arrayToHexColon(asn1.contents).toUpperCase();
+      return serial;
+    }
+
+    function parseTime(asn1) {
+      var t = parseString(asn1.contents);
+      var epochMs;
+      if (asn1.tag == 23) {  // UTCTime
+        epochMs = Date.UTC(
+          "20" + t.substring(0, 2), // year
+          t.substring(2, 4) - 1,    // month
+          t.substring(4, 6),        // day
+          t.substring(6, 8),        // hour
+          t.substring(8, 10),       // minute
+          t.substring(10, 12)       // second
+        );
+      } else if (asn1.tag == 24) { // GeneralizedTime
+        epochMs = Date.UTC(
+          t.substring(0, 4),        // year
+          t.substring(4, 6) - 1,    // month
+          t.substring(6, 8),        // day
+          t.substring(8, 10),       // hour
+          t.substring(10, 12),      // minute
+          t.substring(12, 14)       // second
+        );
+      }
+      return new Date(epochMs);
+    }
+
+    function parseValidity(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("Bad Validity. Not a SEQUENCE.");
+      }
+      var validity = {asn1: asn1};
+      var pieces = berListToJavaScript(asn1.contents);
+      if (pieces.length !== 2) {
+        throw new Error("Wrong number of elements in Validity.");
+      }
+      validity.notBefore = parseTime(pieces[0]);
+      validity.notAfter  = parseTime(pieces[1]);
+      return validity;
+    }
+
+    function parseString(bytes) {
+      var str = "";
+      for (var i = 0; i < bytes.length; i++) {
+        str += String.fromCharCode(bytes[i]);
+      }
+      return str;
+    }
+
+    function parseName(asn1) {
+      if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
+        throw new Error("Bad Name. Not a SEQUENCE.");
+      }
+      var name = {asn1: asn1, rdn: []};
+      var pieces = berListToJavaScript(asn1.contents);
+      for (var i = 0; i < pieces.length; i++) {
+        var att = parseAttributeTypeAndValue(pieces[i]);
+        name.rdn[i] = att;
+      }
+      return name;
+
+      function parseAttributeTypeAndValue(asn1) {
+        if (asn1.cls !== 0 || asn1.tag !== 17 || !asn1.structured) {
+          throw new Error("Not a SET.");
+        }
+        var att = {asn1: asn1};
+        var seqs = berListToJavaScript(asn1.contents);
+        if (seqs.length !== 1) {
+          throw new Error("Wrong number of elements in SET.");
+        }
+        var pieces = berListToJavaScript(seqs[0].contents);
+        if (pieces.length !== 2) {
+          throw new Error("Wrong number of child objects.");
+        }
+        att.type = berObjectIdentifierValue(pieces[0].contents);
+        att.value = pieces[1];
+        if (att.type === "2.5.4.3") {
+          att.typeName = "CN";
+          att.valueStr = parseString(att.value.contents);
+        } else if (att.type === "2.5.4.10") {
+          att.typeName = "O";
+          att.valueStr = parseString(att.value.contents);
+        } else if (att.type === "2.5.4.11") {
+          att.typeName = "OU";
+          att.valueStr = parseString(att.value.contents);
+        } else if (att.type === "2.5.4.45") {
+          att.typeName = "UniqueIdentifier";
+          att.valueStr = arrayToHex(att.value.contents.subarray(1)).toUpperCase();
+        } else {
+          att.typeName = att.type;
+          att.valueStr = arrayToHex(att.value.contents).toUpperCase();
+        }
+        return att;
+      }
     }
 
     function parseSubjectPublicKeyInfo(asn1) {
@@ -1707,20 +1889,65 @@ function parseGbcsMessage(text) {
       30: "Resources Busy",
       127: "Other"
     };
-    parseEnumerated(x, "Status Code", values);
+    parseEnumerated(x, " Status Code", values);
   }
 
-  function getCertificateDecoder(name, x, n) {
-    var bin = x.input.slice(x.index, x.index + n);
-    var base64 = btoa(String.fromCharCode.apply(null, bin));
+  function getCertificateInfo(bytes) {
+    const br = "<br>";
+    var cert;
+    try {
+      cert = asn1Utils().parsePemCertificate(bytes);
+    } catch (e) {
+      console.log(e);
+      return "Cannot parse certificate." + br;
+    }
+    var subject = cert.tbsCertificate.subject;
+    var issuer = cert.tbsCertificate.issuer;
+    function nameToString(name) {
+      var str = "";
+      for (var i = 0; i < name.rdn.length; i++) {
+        str += "  " + name.rdn[i].typeName + " = " + name.rdn[i].valueStr + br;
+      }
+      return str;
+    }
+    function extensions(exts) {
+      var str = "";
+      for (var i = 0; i < exts.length; i++) {
+        if (exts[i].name) {
+          str += "  " + exts[i].name + ": " + exts[i].valueStr + br;
+        }
+      }
+      return str;
+    }
+    var certInfo =
+      "Subject:" + br + nameToString(subject) +
+      br +
+      "Issuer:"  + br + nameToString(issuer)  +
+      br +
+      "Validity:" + br +
+      "  From  " + cert.tbsCertificate.validity.notBefore.toUTCString() + br +
+      "  Until " + cert.tbsCertificate.validity.notAfter .toUTCString() + br +
+      br +
+      "Serial: " + br + "  " + cert.tbsCertificate.serialNumber.str + br +
+      br +
+      "Extensions: " + br + extensions(cert.tbsCertificate.extensions.items) + br;
+
+    return certInfo;
+  }
+
+  function getCertificateDecoder(name, bytes) {
+    var base64 = btoa(String.fromCharCode.apply(null, bytes));
     var url = "https://ssldecoder.daniel-ruf.de/?csr=-----BEGIN+CERTIFICATE-----%0D%0A" + encodeURIComponent(base64) + "%0D%0A-----END+CERTIFICATE-----";
     return getLink(name, url);
   }
 
   function parseCertificate(x, name) {
     var lenSz = parseLength(x, 1);
-    var decoder = getCertificateDecoder("Decode certificate", x, 1 + lenSz.size + lenSz.length);
-    putBytes(name || "Certificate", getBytes(x, 1 + lenSz.size + lenSz.length), decoder);
+    var size = 1 + lenSz.size + lenSz.length;
+    var bin = x.input.slice(x.index, x.index + size);
+    var decoder = getCertificateDecoder("Decode certificate", bin);
+    var certInfo = getCertificateInfo(bin);
+    putBytes(name || " Certificate", getBytes(x, size), certInfo + "<br>" + decoder);
   }
 
   // ASN.1 Types
