@@ -50,8 +50,8 @@ div.tooltip { display: inline; cursor: help; }
 <p><textarea id="textarea" rows="7" placeholder="Paste here the hex string of the GBCS message" autofocus></textarea>
 <p><button type="button" onclick="parse()">Parse</button>
 <p><table id="table"></table>
-<p>GBCS V3.1 Use Cases: <a href="gbcs-use-cases.html">gbcs-use-cases.html</a>
-<p>DLMS V3.1 Use Cases: <a href="dlms-use-cases.html">dlms-use-cases.html</a>
+<p>GBCS V4.0 Use Cases: <a href="gbcs-use-cases.html">gbcs-use-cases.html</a>
+<p>DLMS V4.0 Use Cases: <a href="dlms-use-cases.html">dlms-use-cases.html</a>
 <p>Service Request to Use Cases: <a href="service-request-use-cases.htm">service-request-use-cases.htm</a>
 <p>Source: <a href="https://github.com/HenryGiraldo/gbcs-parser-js">https://github.com/HenryGiraldo/gbcs-parser-js</a>
 <hr>
@@ -1014,6 +1014,16 @@ function parseGbcsMessage(text) {
         parseDlmsAccessResponse(x, messageCode);
       } else if (x.input[x.index] == 0x0F) {
         parseDlmsDataNotificationGbcsAlert(x);
+      } else if (messageCode == 0x0128) {  // CCS08 alert
+        parseFirmwareTransferAlert(x);
+      } else if (messageCode == 0x0129) {  // GCS59
+        if (craFlag == 3) {
+            parseReadPPMIDHCALCSFirmwareVersionAlert(x);
+        } else if (craFlag == 2) {
+            parseReadPPMIDHCALCSFirmwareVersionResponse(x);
+        } else {
+            parseReadPPMIDHCALCSFirmwareVersionCommand(x);
+        }
       } else {
         putBytes("Payload", x);
       }
@@ -1280,6 +1290,8 @@ function parseGbcsMessage(text) {
       0x0117: "PECS02 Activate Emergency Credit on ESME from PPMID",
       0x0118: "PECS03 Request to Enable ESME Supply from PPMID",
       0x0119: "HECS01 Request Control of a HAN Connected Auxiliary Load Control Switch from HCALCS",
+      0x0128: "CCS08 Firmware Transfer Alert",
+      0x0129: "CS08 Read PPMID/HCALCS Firmware Version",
       0x1000: "Generic Critical Alert",
       0x1001: "Generic Non Critical Alert",
     };
@@ -1471,6 +1483,9 @@ function parseGbcsMessage(text) {
       0x8F82: "Remaining Battery Capacity reset",
       0x8F83: "Disablement of Supply due to insufficient credit has been suspended ",
       0x8F84: "Failure to Deliver Remote Party Message to ESME",
+      0x8F89: "Firmware transfer alert FAIL",
+      0x8F8A: "Firmware transfer alert SUCCESS",
+      0x8F8B: "Read Firmware version alert",
     };
     return names[alertCode];
   }
@@ -1691,6 +1706,33 @@ function parseGbcsMessage(text) {
     parseDeviceType(s);
   }
 
+  // CCS08
+  function parseFirmwareTransferAlert(x) {
+      var s = parseSequence(x, "Firmware Transfer Alert");
+      parseAsn1AlertCode(s);
+      parseGeneralizedTime(s, "Execution Date Time");
+      parseDerOctetString(s, "Entity Id");
+      parseDerOctetString(s, "Firmware Version");
+      parseInteger(s, "Response Code", { 0:"Success", 1:"Image Discarded", 2:"Hardeware Version Mismatch", 3:"File Transfer Failure" });
+    }
+  
+  // CS08
+  function parseReadPPMIDHCALCSFirmwareVersionCommand(x) {
+      parseNull(x, "Read PPMID HCALCS Firmware version");
+    }
+  
+  function parseReadPPMIDHCALCSFirmwareVersionResponse(x) {
+      var s = parseSequence(x, "Read Device Join Details Response");
+      parseDerOctetString(s, "Firmware Version");
+      parseInteger(s, "Response Code", { 0:"Read Success", 1:"Read Failure" });
+  }
+  
+  function parseReadPPMIDHCALCSFirmwareVersionAlert(x) {
+      parseAsn1AlertCode(s);
+      parseGeneralizedTime(s, "Execution Date Time");
+      parseDerOctetString(s, "Firmware Version");
+      parseInteger(s, "Activate image", { 0:"Success", 1:"Failure"});
+  }
   // GCS28
 
   function parseSetTimeCommand(x) {
