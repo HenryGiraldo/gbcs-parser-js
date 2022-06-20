@@ -1016,7 +1016,7 @@ function parseGbcsMessage(text) {
         parseDlmsDataNotificationGbcsAlert(x);
       } else if (messageCode == 0x0128) {  // CCS08 alert
         parseFirmwareTransferAlert(x);
-      } else if (messageCode == 0x0129) {  // GCS59
+      } else if (messageCode == 0x0129) {  // CS08 Read PPMID/HCALCS Firmware Version
         if (craFlag == 3) {
             parseReadPPMIDHCALCSFirmwareVersionAlert(x);
         } else if (craFlag == 2) {
@@ -1728,6 +1728,7 @@ function parseGbcsMessage(text) {
   }
   
   function parseReadPPMIDHCALCSFirmwareVersionAlert(x) {
+      var s = parseSequence(x, "Read PPMID/HCALCS Firmware Version");  
       parseAsn1AlertCode(s);
       parseGeneralizedTime(s, "Execution Date Time");
       parseDerOctetString(s, "Firmware Version");
