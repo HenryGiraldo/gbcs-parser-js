@@ -1294,6 +1294,8 @@ function parseGbcsMessage(text) {
       0x0129: "CS08 Read PPMID/HCALCS Firmware Version",
       0x1000: "Generic Critical Alert",
       0x1001: "Generic Non Critical Alert",
+      0xC212: "DMM WriteConfiguration (DMM1.14)",
+      0xC223: "DMM EnableCADg (DMM1.30)",
     };
     var messageCode = parseNumber(x, 2);
     putBytes(name, getBytes(x, 2), usecases[messageCode]);
@@ -2532,6 +2534,8 @@ function parseGbcsMessage(text) {
       parseDlmsLongUnsigned(x, indent + "Long Unsigned", true);
     } else if (choice == 19) {
       parseDlmsCompactArray(x, indent + "Compact Array", indent);
+    } else if (choice == 21) {
+      parseDlmsLongUnsigned64(x, indent + "Long64 Unsigned", true);
     } else if (choice == 22) {
       parseDlmsEnum(x, indent + "Enum", true);
     } else {
@@ -2785,6 +2789,10 @@ function parseGbcsMessage(text) {
 
   function parseDlmsLongUnsigned(x, name, hasTag) {
     parseDlmsNumber(x, name, 2, hasTag, false);
+  }
+
+  function parseDlmsLongUnsigned64(x, name, hasTag) {
+    parseDlmsNumber(x, name, 8, hasTag, false);
   }
 
   function parseDlmsDoubleLong(x, name, hasTag) {
