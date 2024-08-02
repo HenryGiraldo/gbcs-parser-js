@@ -2522,6 +2522,8 @@ function parseGbcsMessage(text) {
       parseDlmsOctetString(x, indent + "Octet String", true);
     } else if (choice == 10) {
       parseDlmsOctetString(x, indent + "Visible String", true);
+    } else if (choice === 12) {
+      parseDlmsOctetString(x, indent, "UTF8 String", true);
     } else if (choice == 15) {
       parseDlmsInteger(x, indent + "Integer", true);
     } else if (choice == 16) {
